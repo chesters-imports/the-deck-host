@@ -369,7 +369,7 @@ _child: subprocess.Popen | None = None
 
 
 def _kill_child() -> None:
-    """Stop ROM side-process (e.g. local desk server) when the host exits."""
+    """Stop only this host's ROM server PID tree — not other Deck Host ROMs."""
     global _child
     if _child is None:
         return
@@ -377,48 +377,69 @@ def _kill_child() -> None:
     _child = None
     if proc.poll() is not None:
         return
+    pid = proc.pid
     try:
         if sys.platform == "win32":
+            # /T = children of this PID only (the server we spawned)
             subprocess.run(
-                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
                 capture_output=True,
                 check=False,
             )
         else:
-            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            try:
+                os.killpg(os.getpgid(pid), signal.SIGTERM)
+            except Exception:
+                proc.terminate()
+            try:
+                proc.wait(timeout=3)
+            except Exception:
+                proc.kill()
     except Exception:
         try:
-            proc.terminate()
-            proc.wait(timeout=3)
+            proc.kill()
         except Exception:
-            try:
-                proc.kill()
-            except Exception:
-                pass
+            pass
+
+
+def _parse_spawn_command(command: str | list[str]) -> list[str]:
+    """Turn --spawn into argv. Avoid shell=True so PID is the real ROM server."""
+    if isinstance(command, list):
+        return [str(x) for x in command]
+    command = (command or "").strip()
+    if not command:
+        return []
+    # Windows: prefer list when pattern is "python" server.py or quoted exe + script
+    try:
+        import shlex
+
+        return shlex.split(command, posix=(sys.platform != "win32"))
+    except Exception:
+        return command.split()
 
 
 def start_rom_process(command: str | list[str], cwd: Path) -> subprocess.Popen:
-    """Start a ROM side-process. Prefer list argv; str uses shell on Windows."""
+    """Start a ROM side-process as its own PID (not cmd.exe)."""
     global _child
+    argv = _parse_spawn_command(command)
+    if not argv:
+        raise ValueError("empty spawn command")
     kwargs: dict = {
         "cwd": str(cwd),
         "stdout": subprocess.DEVNULL if not _DEBUG else None,
         "stderr": subprocess.DEVNULL if not _DEBUG else None,
     }
     if sys.platform == "win32":
-        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        if isinstance(command, str):
-            kwargs["shell"] = True
-            _child = subprocess.Popen(command, **kwargs)
-        else:
-            _child = subprocess.Popen(command, **kwargs)
+        # New process group: kill tree is this server only, not sibling ROMs
+        cf = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        cf |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        kwargs["creationflags"] = cf
     else:
         kwargs["start_new_session"] = True
-        if isinstance(command, str):
-            _child = subprocess.Popen(["sh", "-c", command], **kwargs)
-        else:
-            _child = subprocess.Popen(command, **kwargs)
+    _child = subprocess.Popen(argv, **kwargs)
     atexit.register(_kill_child)
+    if _DEBUG:
+        print(f"[deck-host] ROM pid={_child.pid} argv={argv} cwd={cwd}")
     return _child
 
 
@@ -487,25 +508,37 @@ def main(argv: list[str] | None = None) -> None:
         HOME = LAUNCHER
 
     # Optional: start ROM backend (lives outside this repo), wait, open window; kill on exit
+    health = args.health or (
+        args.url if args.url and str(args.url).startswith("http") else None
+    )
     if args.spawn:
         cwd = Path(args.spawn_cwd).resolve() if args.spawn_cwd else HERE
         if not cwd.is_dir():
             print(f"[deck-host] spawn cwd missing: {cwd}", file=sys.stderr)
             sys.exit(1)
-        print(f"[deck-host] starting ROM process in {cwd}")
-        print(f"[deck-host]   {args.spawn}")
-        start_rom_process(args.spawn, cwd)
-
-        health = args.health or (
-            args.url if args.url and str(args.url).startswith("http") else None
-        )
-        if health:
-            print(f"[deck-host] waiting for {health} …")
-            if not wait_for_url(health, timeout=args.health_timeout):
-                print(f"[deck-host] timeout waiting for ROM at {health}", file=sys.stderr)
-                _kill_child()
+        # If this ROM is already healthy (e.g. re-open), do not spawn a second
+        # server and do not claim ownership to kill on exit.
+        already = health and wait_for_url(health, timeout=0.6)
+        if already:
+            print(f"[deck-host] ROM already up at {health} — not re-spawning")
+        else:
+            print(f"[deck-host] starting ROM process in {cwd}")
+            print(f"[deck-host]   {args.spawn}")
+            try:
+                start_rom_process(args.spawn, cwd)
+            except Exception as e:
+                print(f"[deck-host] spawn failed: {e}", file=sys.stderr)
                 sys.exit(1)
-            print("[deck-host] ROM is up")
+            if health:
+                print(f"[deck-host] waiting for {health} …")
+                if not wait_for_url(health, timeout=args.health_timeout):
+                    print(
+                        f"[deck-host] timeout waiting for ROM at {health}",
+                        file=sys.stderr,
+                    )
+                    _kill_child()
+                    sys.exit(1)
+                print("[deck-host] ROM is up")
 
     try:
         webview.settings["OPEN_DEVTOOLS_IN_DEBUG"] = False
@@ -542,18 +575,36 @@ def main(argv: list[str] | None = None) -> None:
         webview.menu.MenuAction("Close", lambda: api.close()),
     ]
 
+    # Isolate WebView2 profile per ROM so two hosts don't share/clobber one profile
+    storage = HERE / ".webview_profiles" / re_slug(TITLE_ROOT)
+    storage.mkdir(parents=True, exist_ok=True)
+
     try:
+        start_kwargs: dict = {"debug": _DEBUG, "storage_path": str(storage)}
         if _FRAMELESS:
-            webview.start(debug=_DEBUG)
+            webview.start(**start_kwargs)
         else:
             try:
                 menu = webview.menu.Menu("Deck Host", menu_items)
+                webview.start(menu=[menu], **start_kwargs)
+            except TypeError:
+                # older pywebview without storage_path
                 webview.start(menu=[menu], debug=_DEBUG)
             except Exception:
-                webview.start(debug=_DEBUG)
+                try:
+                    webview.start(**start_kwargs)
+                except TypeError:
+                    webview.start(debug=_DEBUG)
     finally:
         _kill_child()
 
+
+def re_slug(s: str) -> str:
+    import re as _re
+
+    s = (s or "host").strip().lower()
+    s = _re.sub(r"[^\w\-]+", "-", s)
+    return s.strip("-") or "host"
 
 if __name__ == "__main__":
     print(

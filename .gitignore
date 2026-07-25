@@ -11,3 +11,4 @@ build/
 *.spec
 *.exe
 *.zip
+shell/.webview_profiles/

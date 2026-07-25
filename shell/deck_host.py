@@ -424,10 +424,15 @@ def start_rom_process(command: str | list[str], cwd: Path) -> subprocess.Popen:
     argv = _parse_spawn_command(command)
     if not argv:
         raise ValueError("empty spawn command")
+    # Always log server output next to the ROM — CREATE_NO_WINDOW hides consoles
+    log_path = cwd / "desk-server.log"
+    log_f = open(log_path, "w", encoding="utf-8", errors="replace")
+    log_f.write(f"argv={argv!r}\ncwd={cwd}\n\n")
+    log_f.flush()
     kwargs: dict = {
         "cwd": str(cwd),
-        "stdout": subprocess.DEVNULL if not _DEBUG else None,
-        "stderr": subprocess.DEVNULL if not _DEBUG else None,
+        "stdout": log_f,
+        "stderr": subprocess.STDOUT,
     }
     if sys.platform == "win32":
         # New process group: kill tree is this server only, not sibling ROMs
@@ -437,9 +442,11 @@ def start_rom_process(command: str | list[str], cwd: Path) -> subprocess.Popen:
     else:
         kwargs["start_new_session"] = True
     _child = subprocess.Popen(argv, **kwargs)
+    # keep log handle alive on the Popen object
+    _child._deck_log = log_f  # type: ignore[attr-defined]
     atexit.register(_kill_child)
-    if _DEBUG:
-        print(f"[deck-host] ROM pid={_child.pid} argv={argv} cwd={cwd}")
+    print(f"[deck-host] ROM pid={_child.pid} argv={argv} cwd={cwd}")
+    print(f"[deck-host] ROM log  {log_path}")
     return _child
 
 

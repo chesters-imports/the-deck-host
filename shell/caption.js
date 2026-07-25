@@ -396,9 +396,323 @@
     document.head.appendChild(style);
   }
 
+  function mkWinBtn(act, label, title, extraClass) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "dh-cap-btn" + (extraClass ? " " + extraClass : "");
+    b.setAttribute("data-act", act);
+    b.title = title;
+    if (label) b.textContent = label;
+    b.addEventListener("mousedown", function (e) {
+      e.stopPropagation();
+    });
+    b.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (act === "step_size") {
+        stepWindowSize();
+        return;
+      }
+      if (act === "deep") {
+        setDeep(true);
+        return;
+      }
+      var a = api();
+      if (!a) return;
+      if (act === "min" && a.minimize) a.minimize();
+      if (act === "max" && a.toggle_maximize) a.toggle_maximize();
+      if (act === "close" && a.close) a.close();
+    });
+    return b;
+  }
+
+  function fillWindowControls(slot) {
+    if (!slot || slot.getAttribute("data-deck-filled") === "1") return;
+    slot.setAttribute("data-deck-filled", "1");
+    slot.classList.add("dh-cap-btns");
+
+    var deepBtn = mkWinBtn("deep", "", "Go deep · hide chrome · F11", "deep-btn");
+    deepBtn.innerHTML =
+      '<span class="dh-eye dh-eye-open" aria-hidden="true">' +
+      '<svg viewBox="0 0 24 24">' +
+      '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/>' +
+      '<circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/>' +
+      "</svg></span>" +
+      '<span class="dh-eye dh-eye-shut" aria-hidden="true">' +
+      '<svg viewBox="0 0 24 24">' +
+      '<path d="M3 12h18"/>' +
+      '<path d="M5.5 12c1.2-2.4 3.6-4 6.5-4s5.3 1.6 6.5 4"/>' +
+      "</svg></span>";
+    slot.appendChild(deepBtn);
+    slot.appendChild(mkWinBtn("step_size", "⤢", "Window · expand to 1600×1200", "mag-btn"));
+    slot.appendChild(mkWinBtn("min", "─", "Minimize"));
+    var maxBtn = mkWinBtn("max", "", "Maximize window", "max-btn");
+    maxBtn.innerHTML =
+      '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+      '<rect x="5" y="5" width="14" height="14" rx="1.2"/>' +
+      "</svg>";
+    slot.appendChild(maxBtn);
+    slot.appendChild(mkWinBtn("close", "✕", "Close", "close"));
+  }
+
+  /**
+   * ROM owns the top bar: [data-deck-chrome] is the caption.
+   * Window controls land in [data-deck-window-controls] (created if missing).
+   */
+  function tryIntegrateRomChrome() {
+    var chrome =
+      document.querySelector("[data-deck-chrome]") ||
+      document.querySelector("header.app-chrome");
+    if (!chrome) return false;
+
+    document.documentElement.classList.add(
+      "deck-host-frameless",
+      "deck-host-integrated"
+    );
+    if (document.body) {
+      document.body.classList.add("deck-host-frameless", "deck-host-integrated");
+    }
+
+    // In-flow header = caption; no extra fixed bar, no double padding
+    if (!chrome.id) chrome.id = "deck-host-caption";
+    chrome.setAttribute("data-deck-integrated", "1");
+
+    var drag =
+      chrome.querySelector("[data-deck-drag]") ||
+      chrome.querySelector(".chrome-meta") ||
+      chrome;
+    drag.classList.add("pywebview-drag-region");
+    drag.title = (drag.title || "") + " · drag to move";
+
+    drag.addEventListener("dblclick", function (e) {
+      if (e.target && e.target.closest && e.target.closest("button, a, input, select"))
+        return;
+      e.preventDefault();
+      var a = api();
+      if (a && a.toggle_maximize) a.toggle_maximize();
+    });
+
+    var slot = chrome.querySelector("[data-deck-window-controls]");
+    if (!slot) {
+      slot = document.createElement("div");
+      slot.setAttribute("data-deck-window-controls", "");
+      chrome.appendChild(slot);
+    }
+    fillWindowControls(slot);
+
+    // optional gem menu on ROM chrome
+    if (!document.getElementById("deck-host-mark") && !chrome.querySelector("[data-act=menu]")) {
+      var mark = document.createElement("button");
+      mark.type = "button";
+      mark.id = "deck-host-mark";
+      mark.className = "dh-cap-mark";
+      mark.setAttribute("data-act", "menu");
+      mark.setAttribute("aria-label", "Host menu");
+      mark.title = "Menu";
+      var gem = document.createElement("span");
+      gem.className = "dh-cap-mark-gem";
+      mark.appendChild(gem);
+      mark.addEventListener("mousedown", function (e) {
+        e.stopPropagation();
+      });
+      mark.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleMenu();
+      });
+      chrome.insertBefore(mark, chrome.firstChild);
+    }
+
+    setCaptionHeightVar(0);
+    injectCss();
+    injectIntegratedCss();
+    applyZoom(readZoom());
+    ensureHostMenu();
+    wireGlobalKeys();
+    return true;
+  }
+
+  function injectIntegratedCss() {
+    if (document.getElementById("deck-host-integrated-css")) return;
+    var style = document.createElement("style");
+    style.id = "deck-host-integrated-css";
+    style.textContent =
+      "html.deck-host-integrated,html.deck-host-integrated body{" +
+      "--deck-caption-h:0px!important;--pocket-caption-h:0px!important}" +
+      "html.deck-host-integrated #deck-host-caption[data-deck-integrated]," +
+      "html.deck-host-integrated [data-deck-chrome]{" +
+      "position:relative;z-index:100;" +
+      "-webkit-app-region:drag}" +
+      "html.deck-host-integrated [data-deck-chrome] button," +
+      "html.deck-host-integrated [data-deck-chrome] a," +
+      "html.deck-host-integrated [data-deck-chrome] input," +
+      "html.deck-host-integrated [data-deck-chrome] select," +
+      "html.deck-host-integrated [data-deck-window-controls]," +
+      "html.deck-host-integrated [data-deck-window-controls] *{" +
+      "-webkit-app-region:no-drag}" +
+      "html.deck-host-integrated [data-deck-window-controls]{" +
+      "display:flex;flex-shrink:0;align-items:stretch;margin-left:auto}" +
+      "html.deck-host-integrated [data-deck-window-controls] .dh-cap-btn{" +
+      "width:36px;border:0;background:transparent;color:inherit;" +
+      "font-size:13px;cursor:pointer;line-height:32px;padding:0;opacity:0.75}" +
+      "html.deck-host-integrated [data-deck-window-controls] .dh-cap-btn:hover{" +
+      "opacity:1;background:rgba(0,0,0,.06)}" +
+      "html.deck-host-integrated [data-deck-window-controls] .dh-cap-btn.close:hover{" +
+      "background:#c42b1c;color:#fff;opacity:1}" +
+      "html.deck-host-integrated [data-deck-window-controls] .dh-cap-btn svg{" +
+      "display:block;width:16px;height:16px;margin:8px auto;fill:none;" +
+      "stroke:currentColor;stroke-width:1.6}" +
+      "html.deck-host-integrated [data-deck-window-controls] .dh-eye{" +
+      "display:block;width:16px;height:16px;margin:8px auto}" +
+      "html.deck-host-integrated [data-deck-window-controls] .dh-eye-shut{display:none}" +
+      "html.deck-host-integrated [data-deck-window-controls] .deep-btn:hover .dh-eye-open{display:none}" +
+      "html.deck-host-integrated [data-deck-window-controls] .deep-btn:hover .dh-eye-shut{display:block}" +
+      "html.deck-host-integrated.deck-host-deep [data-deck-chrome]{display:none!important}" +
+      "html.deck-host-integrated .dh-cap-mark{" +
+      "flex-shrink:0;width:28px;height:28px;margin:0;padding:0;border:0;cursor:pointer;" +
+      "display:flex;align-items:center;justify-content:center;background:transparent;" +
+      "border-radius:4px}" +
+      "html.deck-host-integrated .dh-cap-mark:hover{background:rgba(0,0,0,.06)}" +
+      "html.deck-host-integrated .dh-cap-mark-gem{" +
+      "display:block;width:8px;height:8px;" +
+      "background:linear-gradient(135deg,#5a8ab0,#7ab0d0);" +
+      "box-shadow:0 0 6px rgba(90,138,176,.4)}" +
+      "html.deck-host-integrated #deck-host-menu{" +
+      "top:36px;left:0;min-width:200px;z-index:2147483001;" +
+      "position:fixed;margin:0;padding:6px 0;" +
+      "background:#e8edf2;border:1px solid #c5d0dc;color:#2a3540;" +
+      "font:12px system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.12)}" +
+      "html.deck-host-integrated #deck-host-menu button{" +
+      "display:block;width:100%;text-align:left;border:0;background:transparent;" +
+      "color:inherit;padding:8px 14px;cursor:pointer;font:inherit}" +
+      "html.deck-host-integrated #deck-host-menu button:hover{background:rgba(90,138,176,.15)}" +
+      "html.deck-host-integrated #deck-host-menu .dh-menu-sep{" +
+      "height:1px;margin:6px 10px;background:#c5d0dc}" +
+      "html.deck-host-integrated #deck-host-menu .dh-menu-hint{" +
+      "padding:6px 14px 4px;font-size:10px;letter-spacing:.08em;" +
+      "text-transform:uppercase;opacity:.5}";
+    document.head.appendChild(style);
+  }
+
+  function ensureHostMenu() {
+    if (document.getElementById("deck-host-menu")) return;
+    var menu = document.createElement("div");
+    menu.id = "deck-host-menu";
+    menu.hidden = true;
+    menu.setAttribute("role", "menu");
+    var hint = document.createElement("div");
+    hint.className = "dh-menu-hint";
+    hint.textContent = "DECK HOST";
+    menu.appendChild(hint);
+    DOORS.forEach(function (item) {
+      if (item.sep) {
+        var sep = document.createElement("div");
+        sep.className = "dh-menu-sep";
+        menu.appendChild(sep);
+        return;
+      }
+      var b = document.createElement("button");
+      b.type = "button";
+      b.setAttribute("role", "menuitem");
+      b.textContent = item.label;
+      b.addEventListener("click", function (e) {
+        e.preventDefault();
+        closeMenu();
+        runDoor(item);
+      });
+      menu.appendChild(b);
+    });
+    document.body.appendChild(menu);
+    document.addEventListener(
+      "click",
+      function (e) {
+        var t = e.target;
+        if (!t) return;
+        if (
+          t.closest &&
+          (t.closest("#deck-host-menu") ||
+            t.closest("[data-act=menu]") ||
+            t.closest("#deck-host-mark"))
+        ) {
+          return;
+        }
+        closeMenu();
+      },
+      true
+    );
+  }
+
+  function wireGlobalKeys() {
+    if (window.__deckHostMenuKeys) return;
+    window.__deckHostMenuKeys = true;
+    document.addEventListener(
+      "keydown",
+      function (e) {
+        var key = e.key || "";
+        var ctrl = e.ctrlKey || e.metaKey;
+        if (
+          (e.altKey && (key === "m" || key === "M")) ||
+          (ctrl && (key === "k" || key === "K") && !e.shiftKey)
+        ) {
+          e.preventDefault();
+          toggleMenu();
+          return;
+        }
+        if (ctrl && (key === "n" || key === "N") && !e.shiftKey && !e.altKey) {
+          e.preventDefault();
+          var aNew = api();
+          if (aNew && aNew.new_window) {
+            try {
+              aNew.new_window();
+            } catch (errN) {}
+          }
+          return;
+        }
+        if (key === "F11") {
+          e.preventDefault();
+          toggleDeep();
+          return;
+        }
+        if (key === "Escape") {
+          if (isDeep()) {
+            e.preventDefault();
+            setDeep(false);
+            return;
+          }
+          closeMenu();
+          return;
+        }
+        if (ctrl && (key === "=" || key === "+" || key === "Add")) {
+          e.preventDefault();
+          zoomBy(ZOOM_STEP);
+          return;
+        }
+        if (ctrl && (key === "-" || key === "_" || key === "Subtract")) {
+          e.preventDefault();
+          zoomBy(-ZOOM_STEP);
+          return;
+        }
+        if (ctrl && (key === "0" || key === "Digit0" || key === "Numpad0")) {
+          e.preventDefault();
+          applyZoom(1);
+          return;
+        }
+      },
+      true
+    );
+  }
+
   function run() {
     if (!document.body) {
       setTimeout(run, 30);
+      return;
+    }
+
+    // ROM header takeover (e.g. loreBOX .app-chrome)
+    if (tryIntegrateRomChrome()) {
+      try {
+        if (localStorage.getItem(LS_DEEP) === "1") setDeep(true);
+      } catch (e0) {}
       return;
     }
 

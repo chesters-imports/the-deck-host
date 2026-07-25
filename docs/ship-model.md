@@ -35,6 +35,17 @@ You may run your ROM’s server and the window separately. That is a **developme
 
 ---
 
+## Window profiles
+
+| Profile | Feel | Flags |
+|---------|------|--------|
+| **desk** (default) | DATBOX-style ROM ~960×520 (two stack on ~1080p). Size-step grows. | `--profile desk` |
+| **companion** / **rail** | Tall narrow strip (~368×740), always-on-top (Time Machina). | `--profile companion` |
+
+Use companion for VPN-rail / always-handy toys (e.g. Time Machina). Desk stays the default for full DATBOX-style ROMs.
+
+Also: `--width` / `--height` / `--min-width` / `--min-height` / `--on-top` / `--no-on-top`.
+
 ## Later option: one host, many ROMs
 
 A single Deck Host install could load many ROMs from a shelf (a **ROM deck**). Same runtime, different distribution story. Optional; not required for the first shipping path.

@@ -274,11 +274,57 @@
     syncMenuMark();
   }
 
+  /** ROMs may set window.DECK_ROM_MENU_EXTRAS = [{ label|labelFn, run }] */
+  function appendRomMenuExtras(menu) {
+    if (!menu) return;
+    // clear previous extras (rebuild-safe)
+    var old = menu.querySelectorAll("[data-deck-rom-extra]");
+    for (var i = 0; i < old.length; i++) old[i].remove();
+    var extras = window.DECK_ROM_MENU_EXTRAS;
+    if (!extras || !extras.length) return;
+    var sep = document.createElement("div");
+    sep.className = "dh-menu-sep";
+    sep.setAttribute("data-deck-rom-extra", "1");
+    menu.appendChild(sep);
+    extras.forEach(function (item) {
+      if (!item || item.sep) {
+        var s2 = document.createElement("div");
+        s2.className = "dh-menu-sep";
+        s2.setAttribute("data-deck-rom-extra", "1");
+        menu.appendChild(s2);
+        return;
+      }
+      var b = document.createElement("button");
+      b.type = "button";
+      b.setAttribute("role", "menuitem");
+      b.setAttribute("data-deck-rom-extra", "1");
+      b.textContent =
+        typeof item.labelFn === "function"
+          ? item.labelFn()
+          : item.label || "…";
+      b.addEventListener("click", function (e) {
+        e.preventDefault();
+        closeMenu();
+        try {
+          if (typeof item.run === "function") item.run();
+        } catch (err) {}
+      });
+      menu.appendChild(b);
+    });
+  }
+
+  function refreshRomMenuExtras() {
+    var m = document.getElementById("deck-host-menu");
+    if (m) appendRomMenuExtras(m);
+  }
+
   function toggleMenu() {
     var m = document.getElementById("deck-host-menu");
     if (!m) return;
     // if deep, surface first so menu has a home
     if (isDeep()) setDeep(false);
+    // ROM may register extras late — refresh labels each open
+    appendRomMenuExtras(m);
     m.hidden = !m.hidden;
     syncMenuMark();
     if (!m.hidden) {
@@ -441,28 +487,57 @@
     slot.setAttribute("data-deck-filled", "1");
     slot.classList.add("dh-cap-btns");
 
-    var deepBtn = mkWinBtn("deep", "", "Go deep · hide chrome · F11", "deep-btn");
-    deepBtn.innerHTML =
-      '<span class="dh-eye dh-eye-open" aria-hidden="true">' +
-      '<svg viewBox="0 0 24 24">' +
-      '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/>' +
-      '<circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/>' +
-      "</svg></span>" +
-      '<span class="dh-eye dh-eye-shut" aria-hidden="true">' +
-      '<svg viewBox="0 0 24 24">' +
-      '<path d="M3 12h18"/>' +
-      '<path d="M5.5 12c1.2-2.4 3.6-4 6.5-4s5.3 1.6 6.5 4"/>' +
-      "</svg></span>";
-    slot.appendChild(deepBtn);
-    slot.appendChild(mkWinBtn("step_size", "⤢", "Window · expand to 1600×1200", "mag-btn"));
-    slot.appendChild(mkWinBtn("min", "─", "Minimize"));
-    var maxBtn = mkWinBtn("max", "", "Maximize window", "max-btn");
-    maxBtn.innerHTML =
-      '<svg viewBox="0 0 24 24" aria-hidden="true">' +
-      '<rect x="5" y="5" width="14" height="14" rx="1.2"/>' +
-      "</svg>";
-    slot.appendChild(maxBtn);
-    slot.appendChild(mkWinBtn("close", "✕", "Close", "close"));
+    // ROM may restrict controls: data-deck-controls="min,close" on the slot
+    // or parent [data-deck-chrome]. Default = full desk set.
+    var chrome = document.querySelector("[data-deck-chrome]");
+    var raw =
+      (slot.getAttribute("data-deck-controls") ||
+        (chrome && chrome.getAttribute("data-deck-controls")) ||
+        "")
+        .trim()
+        .toLowerCase();
+    var allow = raw
+      ? raw.split(/[\s,]+/).filter(Boolean)
+      : ["deep", "step", "step_size", "min", "max", "close"];
+    function has(name) {
+      if (name === "step") return allow.indexOf("step") >= 0 || allow.indexOf("step_size") >= 0;
+      return allow.indexOf(name) >= 0;
+    }
+
+    if (has("deep")) {
+      var deepBtn = mkWinBtn("deep", "", "Go deep · hide chrome · F11", "deep-btn");
+      deepBtn.innerHTML =
+        '<span class="dh-eye dh-eye-open" aria-hidden="true">' +
+        '<svg viewBox="0 0 24 24">' +
+        '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/>' +
+        '<circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/>' +
+        "</svg></span>" +
+        '<span class="dh-eye dh-eye-shut" aria-hidden="true">' +
+        '<svg viewBox="0 0 24 24">' +
+        '<path d="M3 12h18"/>' +
+        '<path d="M5.5 12c1.2-2.4 3.6-4 6.5-4s5.3 1.6 6.5 4"/>' +
+        "</svg></span>";
+      slot.appendChild(deepBtn);
+    }
+    if (has("step")) {
+      slot.appendChild(
+        mkWinBtn("step_size", "⤢", "Window · step size", "mag-btn")
+      );
+    }
+    if (has("min")) {
+      slot.appendChild(mkWinBtn("min", "─", "Minimize"));
+    }
+    if (has("max")) {
+      var maxBtn = mkWinBtn("max", "", "Maximize window", "max-btn");
+      maxBtn.innerHTML =
+        '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+        '<rect x="5" y="5" width="14" height="14" rx="1.2"/>' +
+        "</svg>";
+      slot.appendChild(maxBtn);
+    }
+    if (has("close")) {
+      slot.appendChild(mkWinBtn("close", "✕", "Close", "close"));
+    }
   }
 
   /**
@@ -487,11 +562,26 @@
     // Never inject #deck-host-caption — ROM chrome stays as-designed
     chrome.setAttribute("data-deck-integrated", "1");
 
+    // Prefer whole chrome as drag root (companion rails need a big grab zone).
+    // Interactive bits use -webkit-app-region:no-drag via injectIntegratedCss.
+    var dragRoot =
+      chrome.getAttribute("data-deck-drag-root") != null
+        ? chrome
+        : null;
     var drag =
+      dragRoot ||
       chrome.querySelector("[data-deck-drag]") ||
+      chrome.querySelector(".chrome-grip") ||
       chrome.querySelector(".chrome-meta");
     if (drag) {
       drag.classList.add("pywebview-drag-region");
+      if (dragRoot) {
+        // Also mark grip children so pywebview finds a region even if CSS fails
+        var grips = chrome.querySelectorAll("[data-deck-drag], .chrome-grip, .chrome-meta");
+        for (var gi = 0; gi < grips.length; gi++) {
+          grips[gi].classList.add("pywebview-drag-region");
+        }
+      }
       if (!/drag/i.test(drag.title || "")) {
         drag.title = ((drag.title || "").trim() + " · drag to move").trim();
       }
@@ -499,7 +589,7 @@
         if (
           e.target &&
           e.target.closest &&
-          e.target.closest("button, a, input, select")
+          e.target.closest("button, a, input, select, [data-deck-menu], [data-deck-window-controls]")
         )
           return;
         e.preventDefault();
@@ -557,11 +647,20 @@
     style.textContent =
       "html.deck-host-integrated,html.deck-host-integrated body{" +
       "--deck-caption-h:0px!important;--pocket-caption-h:0px!important}" +
+      /* Whole ROM chrome draggable when marked data-deck-drag-root */
+      "html.deck-host-integrated [data-deck-chrome][data-deck-drag-root]{" +
+      "-webkit-app-region:drag}" +
+      "html.deck-host-integrated [data-deck-chrome] [data-deck-drag]," +
+      "html.deck-host-integrated [data-deck-chrome] .chrome-grip," +
+      "html.deck-host-integrated [data-deck-chrome] .chrome-meta{" +
+      "-webkit-app-region:drag}" +
       "html.deck-host-integrated [data-deck-window-controls]," +
       "html.deck-host-integrated [data-deck-window-controls] *{" +
       "-webkit-app-region:no-drag}" +
       "html.deck-host-integrated [data-deck-menu]," +
-      "html.deck-host-integrated [data-act=menu]{" +
+      "html.deck-host-integrated [data-act=menu]," +
+      "html.deck-host-integrated [data-deck-chrome] button," +
+      "html.deck-host-integrated [data-deck-chrome] .pocket{" +
       "-webkit-app-region:no-drag}" +
       "html.deck-host-integrated [data-deck-window-controls]{" +
       "display:flex;flex-shrink:0;align-items:stretch}" +
@@ -626,6 +725,7 @@
       });
       menu.appendChild(b);
     });
+    appendRomMenuExtras(menu);
     document.body.appendChild(menu);
     document.addEventListener(
       "click",
@@ -885,6 +985,7 @@
       });
       menu.appendChild(b);
     });
+    appendRomMenuExtras(menu);
 
     bar.appendChild(mark);
     bar.appendChild(drag);

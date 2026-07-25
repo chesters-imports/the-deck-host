@@ -41,4 +41,7 @@ Island open. **Shell stage 1** is in `shell/` (reworked from the old pocket-brow
 cd shell
 pip install -r requirements.txt
 python deck_host.py --url http://127.0.0.1:42929/
+python deck_host.py --profile companion --url http://127.0.0.1:43111/
 ```
+
+**Profiles:** `desk` (DATBOX ROMs ~960×520, two stack on 1080p) · `companion` / `rail` (tall Time Machina strip ~368×740).

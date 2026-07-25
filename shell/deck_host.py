@@ -60,12 +60,37 @@ _FRAMELESS = os.environ.get("DECK_HOST_FRAMELESS", "1").strip().lower() not in (
 
 _CAPTION_SRC = CAPTION_JS.read_text(encoding="utf-8") if CAPTION_JS.is_file() else ""
 
+# Window geometry — mutated by --profile / --width / etc. in main()
 _MAG_SMALL = (1024, 768)
 _MAG_LARGE = (1600, 1200)
+_MIN_SIZE = (640, 480)
+_ON_TOP = False
+_PROFILE = "desk"  # desk | companion
 
 # Set in main() from CLI / env
 HOME = LAUNCHER
 BASE = ""  # optional prefix for relative go() paths
+
+
+def apply_profile(name: str) -> None:
+    """desk = classic ROM window; companion = narrow always-handy rail."""
+    global _MAG_SMALL, _MAG_LARGE, _MIN_SIZE, _ON_TOP, _PROFILE
+    p = (name or "desk").strip().lower()
+    if p in ("companion", "rail", "companion-rail", "strip"):
+        _PROFILE = "companion"
+        # Time Machina etc. — tall strip (needs message body height)
+        _MAG_SMALL = (368, 740)
+        _MAG_LARGE = (400, 920)
+        _MIN_SIZE = (300, 420)
+        _ON_TOP = True
+    else:
+        _PROFILE = "desk"
+        # DATBOX ROMs — a bit shorter so two stack in one column on ~1080p
+        # (was 1024×768; 768×2 overshoots a normal desktop)
+        _MAG_SMALL = (960, 520)
+        _MAG_LARGE = (1280, 800)
+        _MIN_SIZE = (640, 400)
+        _ON_TOP = False
 
 
 class DeckHostApi:
@@ -76,6 +101,9 @@ class DeckHostApi:
         self._maximized = False
         self._normal_size = _MAG_SMALL
         self._mag_large = False
+        self._mag_small = _MAG_SMALL
+        self._mag_large_size = _MAG_LARGE
+        self._allow_maximize = _PROFILE != "companion"
 
     def bind(self, window: webview.Window) -> None:
         self._window = window
@@ -86,6 +114,10 @@ class DeckHostApi:
 
     def toggle_maximize(self) -> None:
         if not self._window:
+            return
+        # Companion rails: maximize is wrong shape — step height instead
+        if not self._allow_maximize:
+            self.step_window_size()
             return
         if self._maximized:
             w, h = self._normal_size
@@ -114,10 +146,10 @@ class DeckHostApi:
             pass
 
         if self._mag_large:
-            target = _MAG_SMALL
+            target = self._mag_small
             self._mag_large = False
         else:
-            target = _MAG_LARGE
+            target = self._mag_large_size
             self._mag_large = True
 
         try:
@@ -346,20 +378,23 @@ def spawn_deck_window(
     height: int | None = None,
 ) -> webview.Window:
     api = DeckHostApi()
-    w = webview.create_window(
-        title=TITLE_ROOT,
-        url=url or HOME,
-        width=width or _MAG_SMALL[0],
-        height=height or _MAG_SMALL[1],
-        min_size=(640, 480),
-        background_color="#0a0c12",
-        text_select=True,
-        frameless=_FRAMELESS,
-        easy_drag=False,
-        resizable=True,
-        shadow=True,
-        js_api=api,
-    )
+    kw: dict = {
+        "title": TITLE_ROOT,
+        "url": url or HOME,
+        "width": width or _MAG_SMALL[0],
+        "height": height or _MAG_SMALL[1],
+        "min_size": _MIN_SIZE,
+        "background_color": "#0a0c12",
+        "text_select": True,
+        "frameless": _FRAMELESS,
+        "easy_drag": False,
+        "resizable": True,
+        "shadow": True,
+        "js_api": api,
+    }
+    if _ON_TOP:
+        kw["on_top"] = True
+    w = webview.create_window(**kw)
     api.bind(w)
     _attach_window_events(w, api)
     return w
@@ -498,13 +533,74 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=float(os.environ.get("DECK_HOST_HEALTH_TIMEOUT", "25")),
         help="Seconds to wait for --health",
     )
+    p.add_argument(
+        "--profile",
+        default=os.environ.get("DECK_HOST_PROFILE", "desk").strip() or "desk",
+        choices=("desk", "companion", "rail"),
+        help="desk = classic ROM window; companion/rail = narrow strip (always-on-top)",
+    )
+    p.add_argument(
+        "--width",
+        type=int,
+        default=_env_int("DECK_HOST_WIDTH"),
+        help="Window width (overrides profile default)",
+    )
+    p.add_argument(
+        "--height",
+        type=int,
+        default=_env_int("DECK_HOST_HEIGHT"),
+        help="Window height (overrides profile default)",
+    )
+    p.add_argument(
+        "--min-width",
+        type=int,
+        default=_env_int("DECK_HOST_MIN_WIDTH"),
+        help="Minimum window width",
+    )
+    p.add_argument(
+        "--min-height",
+        type=int,
+        default=_env_int("DECK_HOST_MIN_HEIGHT"),
+        help="Minimum window height",
+    )
+    p.add_argument(
+        "--on-top",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Keep window above others (default: on for companion profile)",
+    )
     return p.parse_args(argv)
 
 
+def _env_int(name: str) -> int | None:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
 def main(argv: list[str] | None = None) -> None:
-    global HOME, BASE, TITLE_ROOT
+    global HOME, BASE, TITLE_ROOT, _MAG_SMALL, _MAG_LARGE, _MIN_SIZE, _ON_TOP
 
     args = parse_args(argv)
+    apply_profile(args.profile)
+    if args.width and args.height:
+        _MAG_SMALL = (args.width, args.height)
+    elif args.width:
+        _MAG_SMALL = (args.width, _MAG_SMALL[1])
+    elif args.height:
+        _MAG_SMALL = (_MAG_SMALL[0], args.height)
+    if args.min_width or args.min_height:
+        _MIN_SIZE = (
+            args.min_width or _MIN_SIZE[0],
+            args.min_height or _MIN_SIZE[1],
+        )
+    if args.on_top is not None:
+        _ON_TOP = bool(args.on_top)
+
     if args.title:
         TITLE_ROOT = args.title.strip() or TITLE_ROOT
     if args.base:
@@ -553,22 +649,32 @@ def main(argv: list[str] | None = None) -> None:
         pass
 
     api = DeckHostApi()
-    window = webview.create_window(
-        title=TITLE_ROOT,
-        url=HOME,
-        width=_MAG_SMALL[0],
-        height=_MAG_SMALL[1],
-        min_size=(640, 480),
-        background_color="#0a0c12",
-        text_select=True,
-        frameless=_FRAMELESS,
-        easy_drag=False,
-        resizable=True,
-        shadow=True,
-        js_api=api,
-    )
+    win_kw: dict = {
+        "title": TITLE_ROOT,
+        "url": HOME,
+        "width": _MAG_SMALL[0],
+        "height": _MAG_SMALL[1],
+        "min_size": _MIN_SIZE,
+        "background_color": "#0a0c12",
+        "text_select": True,
+        "frameless": _FRAMELESS,
+        "easy_drag": False,
+        "resizable": True,
+        "shadow": True,
+        "js_api": api,
+    }
+    if _ON_TOP:
+        win_kw["on_top"] = True
+    window = webview.create_window(**win_kw)
     api.bind(window)
     _attach_window_events(window, api)
+    print(
+        f"[deck-host] profile={_PROFILE}  "
+        f"size={_MAG_SMALL[0]}x{_MAG_SMALL[1]}  "
+        f"min={_MIN_SIZE[0]}x{_MIN_SIZE[1]}  "
+        f"on_top={_ON_TOP}",
+        flush=True,
+    )
 
     menu_items = [
         webview.menu.MenuAction("Home", lambda: api.home()),
@@ -623,6 +729,7 @@ if __name__ == "__main__":
             "  caption: gem menu · Alt+M · Ctrl+N new · drag · size · "
             "Ctrl± zoom · F11 deep · Esc surface"
         )
+    print("  profiles: desk (classic ROM) · companion/rail (narrow strip)")
     if not CAPTION_JS.is_file():
         print(f"  WARNING: missing {CAPTION_JS}")
     main()

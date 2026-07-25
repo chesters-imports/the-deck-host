@@ -19,11 +19,16 @@ Builds originals remain at my-pocket-internet/pocket-browser.
 from __future__ import annotations
 
 import argparse
+import atexit
 import json
 import os
+import signal
+import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
@@ -360,6 +365,77 @@ def spawn_deck_window(
     return w
 
 
+_child: subprocess.Popen | None = None
+
+
+def _kill_child() -> None:
+    """Stop ROM side-process (e.g. local desk server) when the host exits."""
+    global _child
+    if _child is None:
+        return
+    proc = _child
+    _child = None
+    if proc.poll() is not None:
+        return
+    try:
+        if sys.platform == "win32":
+            subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                capture_output=True,
+                check=False,
+            )
+        else:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+    except Exception:
+        try:
+            proc.terminate()
+            proc.wait(timeout=3)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+
+def start_rom_process(command: str | list[str], cwd: Path) -> subprocess.Popen:
+    """Start a ROM side-process. Prefer list argv; str uses shell on Windows."""
+    global _child
+    kwargs: dict = {
+        "cwd": str(cwd),
+        "stdout": subprocess.DEVNULL if not _DEBUG else None,
+        "stderr": subprocess.DEVNULL if not _DEBUG else None,
+    }
+    if sys.platform == "win32":
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        if isinstance(command, str):
+            kwargs["shell"] = True
+            _child = subprocess.Popen(command, **kwargs)
+        else:
+            _child = subprocess.Popen(command, **kwargs)
+    else:
+        kwargs["start_new_session"] = True
+        if isinstance(command, str):
+            _child = subprocess.Popen(["sh", "-c", command], **kwargs)
+        else:
+            _child = subprocess.Popen(command, **kwargs)
+    atexit.register(_kill_child)
+    return _child
+
+
+def wait_for_url(url: str, timeout: float = 20.0) -> bool:
+    """Poll until HTTP responds (any code short of connection failure)."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            urllib.request.urlopen(url, timeout=0.8)
+            return True
+        except urllib.error.HTTPError:
+            return True  # server up, just not 200
+        except Exception:
+            time.sleep(0.2)
+    return False
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="The Deck Host — run a ROM in a desktop window")
     p.add_argument(
@@ -373,6 +449,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Base URL for relative go() paths (optional)",
     )
     p.add_argument("--title", default=None, help="Window title root")
+    p.add_argument(
+        "--spawn",
+        default=os.environ.get("DECK_HOST_SPAWN", "").strip() or None,
+        help='Shell command to start before the window (e.g. "python server.py")',
+    )
+    p.add_argument(
+        "--spawn-cwd",
+        default=os.environ.get("DECK_HOST_SPAWN_CWD", "").strip() or None,
+        help="Working directory for --spawn",
+    )
+    p.add_argument(
+        "--health",
+        default=os.environ.get("DECK_HOST_HEALTH", "").strip() or None,
+        help="URL to wait for before opening the window (default: --url)",
+    )
+    p.add_argument(
+        "--health-timeout",
+        type=float,
+        default=float(os.environ.get("DECK_HOST_HEALTH_TIMEOUT", "25")),
+        help="Seconds to wait for --health",
+    )
     return p.parse_args(argv)
 
 
@@ -388,6 +485,27 @@ def main(argv: list[str] | None = None) -> None:
         HOME = args.url
     else:
         HOME = LAUNCHER
+
+    # Optional: start ROM backend (lives outside this repo), wait, open window; kill on exit
+    if args.spawn:
+        cwd = Path(args.spawn_cwd).resolve() if args.spawn_cwd else HERE
+        if not cwd.is_dir():
+            print(f"[deck-host] spawn cwd missing: {cwd}", file=sys.stderr)
+            sys.exit(1)
+        print(f"[deck-host] starting ROM process in {cwd}")
+        print(f"[deck-host]   {args.spawn}")
+        start_rom_process(args.spawn, cwd)
+
+        health = args.health or (
+            args.url if args.url and str(args.url).startswith("http") else None
+        )
+        if health:
+            print(f"[deck-host] waiting for {health} …")
+            if not wait_for_url(health, timeout=args.health_timeout):
+                print(f"[deck-host] timeout waiting for ROM at {health}", file=sys.stderr)
+                _kill_child()
+                sys.exit(1)
+            print("[deck-host] ROM is up")
 
     try:
         webview.settings["OPEN_DEVTOOLS_IN_DEBUG"] = False
@@ -424,14 +542,17 @@ def main(argv: list[str] | None = None) -> None:
         webview.menu.MenuAction("Close", lambda: api.close()),
     ]
 
-    if _FRAMELESS:
-        webview.start(debug=_DEBUG)
-    else:
-        try:
-            menu = webview.menu.Menu("Deck Host", menu_items)
-            webview.start(menu=[menu], debug=_DEBUG)
-        except Exception:
+    try:
+        if _FRAMELESS:
             webview.start(debug=_DEBUG)
+        else:
+            try:
+                menu = webview.menu.Menu("Deck Host", menu_items)
+                webview.start(menu=[menu], debug=_DEBUG)
+            except Exception:
+                webview.start(debug=_DEBUG)
+    finally:
+        _kill_child()
 
 
 if __name__ == "__main__":

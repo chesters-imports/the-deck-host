@@ -78,21 +78,17 @@
 <body>
   <h1>The Deck Host</h1>
   <p class="sub">
-    Runtime gate. Open a ROM by URL, or launch the host already pointed at one:
-    <code>python deck_host.py --url …</code>
+    Runtime gate only. ROMs live in their own projects and call The Deck Host with
+    <code>--url</code> and optional <code>--spawn</code>. This host does not store ROM files.
   </p>
   <div class="grid">
-    <a class="door" href="http://datbox.lorebox.localhost:42929/">
-      <strong>loreBOX</strong>
-      <span>local desk · start loreBOX server first if needed</span>
-    </a>
-    <a class="door" href="http://127.0.0.1:42929/">
-      <strong>loreBOX</strong>
-      <span>127.0.0.1:42929</span>
+    <a class="door" href="#" onclick="return false;">
+      <strong>No ROMs bundled here</strong>
+      <span>Launch from the ROM island (e.g. loreBOX prod/run-loreBOX.bat)</span>
     </a>
   </div>
   <p class="note">
-    This gate is for development. A shipped ROM packages The Deck Host so the operator never visits here.
+    Example: <code>python deck_host.py --url http://127.0.0.1:PORT/ --spawn "python server.py" --spawn-cwd path\to\rom</code>
   </p>
 </body>
 </html>

@@ -10,19 +10,26 @@ pip install -r requirements.txt
 python deck_host.py
 ```
 
-Open a specific ROM URL:
+### Host a ROM that lives elsewhere
+
+ROMs are **not** stored in this repo. The ROM project starts the host:
 
 ```bat
-python deck_host.py --url http://datbox.lorebox.localhost:42929/
+python deck_host.py --title loreBOX --url http://127.0.0.1:42929/ ^
+  --spawn "python server.py" --spawn-cwd C:\path\to\lore-box\prod\box_sys ^
+  --health http://127.0.0.1:42929/api/health
 ```
+
+loreBOX ships that as `datbox-studio/lore-box/prod/run-loreBOX.bat`.
 
 | Env / flag | Meaning |
 |------------|---------|
 | `--url` / `DECK_HOST_URL` | Entry page |
-| `--base` / `DECK_HOST_BASE` | Prefix for relative `go()` paths |
+| `--spawn` / `DECK_HOST_SPAWN` | Start ROM process before window |
+| `--spawn-cwd` | Cwd for that process |
+| `--health` | Wait until this URL answers |
 | `DECK_HOST_FRAMELESS=0` | OS frame + menu |
 | `DECK_HOST_DEBUG=0` | DevTools off |
-
 ## Layout
 
 | Path | Role |

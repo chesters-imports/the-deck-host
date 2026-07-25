@@ -1,30 +1,30 @@
 ```
 =================================================
   POCKET WINDOWS
-  pocket apps, in a real window
+  pocket ROMs, in a real window
 =================================================
 ```
 
-**Pocket Windows** turns a small website (or local web app) into software you can open like any other desktop program.
+**Pocket Windows** turns a small website (or local web surface) into a **ROM** you can open like any other desktop program.
 
-Point it at an app. Package it. Double-click.  
-The window is the product chrome; **your app** is the product.
+Point it at a ROM. Package it. Double-click.  
+The window is the product chrome; **your ROM** is the product.
 
 ### Who it’s for
 
-Anyone building **pocket apps** — compact tools and surfaces meant to feel like their own program, not a tab lost in a browser.
+Anyone building **pocket ROMs** — compact tools and surfaces meant to feel like their own program, not a tab lost in a browser.
 
 ### What you get
 
-- A dedicated **window** for your app (not a browser browser)
-- A path to **ship one app as one install** — your files + this runtime, one icon
-- Room later for a **pack shelf** (many apps in one Pocket Windows install) if you want that shape
+- A dedicated **window** for your ROM (not a browser browser)
+- A path to **ship one ROM as one install** — your files + this runtime, one icon
+- Room later for a **ROM deck** (many ROMs in one Pocket Windows install) if you want that shape
 
 ### What it does not do
 
-- It does not replace your app’s own data, settings, or logic  
+- It does not replace your ROM’s own data, settings, or logic  
 - It does not require the operator to keep a separate server console open for normal use  
-- It is not tied to a single studio or title — any pocket app can wear it
+- It is not tied to a single studio or title — any pocket ROM can wear it
 
 ### Layout
 

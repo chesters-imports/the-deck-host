@@ -1,7 +1,7 @@
-# Pocket Windows — docs
+# Studio paper — Pocket Windows
 
-| Doc | Topic |
-|-----|--------|
-| [[ship-model]] | Standalone per-toy ship (B) vs ROM deck dream (A) |
+| Sheet | Subject |
+|--------|---------|
+| [[ship-model]] | How toys leave the workbench and become whole apps |
 
-Paper for makers and wire. Product face stays in the root README.
+Root [[README]] is the product face of the house.

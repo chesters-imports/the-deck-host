@@ -1,43 +1,71 @@
-# Ship model — Pocket Windows
+# How pocket apps leave the workbench
 
-## Target for now: **B — per-toy standalone app**
+**House:** Pocket Windows  
+**Season:** first glass — per-app ship
 
-User gets something like:
+---
+
+## The finished thing
+
+When a toy is ready for hands that are not on the workbench, it leaves as **one product**:
 
 ```
 loreBOX/
-  loreBOX.exe          (or platform launcher name)
-  app/                 toy surface (desk)
-  safe_box/            operator data
-  box_sets/            settings
+  (the glass — Pocket Windows, wearing this toy’s name)
+  app/            the desk or surface
+  safe_box/       what the operator saves
+  box_sets/       what the ROM remembers as settings
 ```
 
-**Double-click → app runs.**  
-No separate “start the server in a terminal while Grok watches” ritual for the operator.
+Open it. It runs.  
+No spare terminal. No second window whose only job is to keep a server polite.  
+The glass owns the life of the process: wake the surface, keep the window, sleep clean when closed.
 
-Internally, the app may still use a local web surface + embedded runtime. That is an implementation detail. The **product** is one click.
+---
 
-## Dev vs ship
+## Workbench vs shelf
 
-| Mode | Who | How |
-|------|-----|-----|
-| **Dev** | Hands / wire | May run server + shell separately while building |
-| **Ship** | Operator | One icon; runtime owns lifecycle (start glass, start local services if needed, shut down clean) |
+| Place | What happens |
+|--------|----------------|
+| **Workbench** | Wires and hands may run pieces apart — surface here, glass there — while cutting |
+| **Shelf** | One icon. One product name. The operator never performs the workbench ritual |
 
-Never call dev mode the product.
+The workbench is not what we stock.
 
-## Later dream: **A — ROM deck**
+---
 
-One Pocket Windows install; toys load as packs/ROMs on a shelf.  
-Not the first ship target. Compatible later if packs are the same shape as a toy’s `app/` + manifest.
+## Two dreams of the house
 
-## Island law
+### Now — each toy its own glass
+**loreBOX** ships as loreBOX.  
+The Pocket Windows runtime is **inside** that package, quiet, branded for that toy.
 
-- **chesters-imports/pocket-windows** — engine  
-- Toy repos (e.g. datbox-studio) — product source  
-- **No** messy myPI / pocket-browser migration leftovers in this tree  
-- Full product language: **Pocket Windows**, pocket window, glass — not farm hosts `b` / mypi captions as product names  
+Other toys may ship the same way: whole apps, separate names on the desk.
 
-## First success (when runtime lands)
+### Later — the ROM deck
+One Pocket Windows install; many packs on a shelf; load a ROM when you want it.  
+Same house, later room. Not the first key on the ring.
 
-Double-click **loreBOX** (packaged with Pocket Windows) → window opens on the desk → safe_box works on disk → quit leaves nothing orphaned in a terminal.
+---
+
+## Islands of the making
+
+| Island | Holds |
+|--------|--------|
+| **Pocket Windows** | The glass, the packing story |
+| **DatBox Studio** (and kin) | The toys — desks, mats, settings |
+| **The shipped folder** | Glass + one toy, named for the operator |
+
+Making stays on separate islands.  
+What the operator receives is **whole**.
+
+---
+
+## First light (when the glass is cut)
+
+Double-click **loreBOX**.  
+A pocket window opens on the desk.  
+The safe box is on disk beside the app.  
+Close the window — nothing is left begging in a terminal.
+
+— Pocket Windows studio paper

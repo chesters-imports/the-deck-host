@@ -1,4 +1,4 @@
-# Shipping ROMs with Pocket Windows
+# Shipping ROMs with The Deck Host
 
 ## Goal
 
@@ -14,13 +14,13 @@ They should not need a second window running a server “for” the ROM, or a de
 
 ## Recommended shape: one ROM, one package
 
-Each product ships as its own desktop program. Pocket Windows is the **runtime inside that package**, not a separate program the user must install first.
+Each product ships as its own desktop program. **The Deck Host** is the **runtime inside that package**, not a separate program the user must install first.
 
 Example layout (names are yours to choose):
 
 ```
 YourROM/
-  YourROM.exe          # Pocket Windows runtime, configured for this ROM
+  YourROM.exe          # The Deck Host runtime, configured for this ROM
   rom/                 # your web UI / local surface
   data/                # optional — saves, settings, user files
 ```
@@ -35,9 +35,9 @@ You may run your ROM’s server and the window separately. That is a **developme
 
 ---
 
-## Later option: one Pocket Windows, many ROMs
+## Later option: one host, many ROMs
 
-A single Pocket Windows install could load many ROMs from a shelf (a **ROM deck**). Same runtime, different distribution story. Optional; not required for the first shipping path.
+A single Deck Host install could load many ROMs from a shelf (a **ROM deck**). Same runtime, different distribution story. Optional; not required for the first shipping path.
 
 ---
 
@@ -45,7 +45,7 @@ A single Pocket Windows install could load many ROMs from a shelf (a **ROM deck*
 
 | Piece | Where it lives |
 |--------|----------------|
-| Pocket Windows (this project) | Runtime and packaging |
+| The Deck Host (this project) | Runtime and packaging |
 | Your ROM’s source | Your own project / repo |
 | What the user installs | Runtime + your ROM files, branded as **your** product |
 

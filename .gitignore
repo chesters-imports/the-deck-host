@@ -1,0 +1,13 @@
+.obsidian/
+.DS_Store
+Thumbs.db
+__pycache__/
+*.pyc
+.venv/
+venv/
+node_modules/
+dist/
+build/
+*.spec
+*.exe
+*.zip

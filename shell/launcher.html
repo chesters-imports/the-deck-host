@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>The Deck Host — gate</title>
+  <style>
+    :root {
+      --bg: #0a0c12;
+      --panel: #12151e;
+      --ink: #d8dee8;
+      --dim: #6a7a9a;
+      --accent: #6a8cff;
+      --line: #2a3048;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: radial-gradient(ellipse at top, #151a28 0%, var(--bg) 55%);
+      color: var(--ink);
+      padding: 2.5rem 1.5rem 3rem;
+    }
+    h1 {
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin: 0 0 0.35rem;
+    }
+    .sub {
+      color: var(--dim);
+      font-size: 0.95rem;
+      max-width: 36rem;
+      line-height: 1.45;
+      margin-bottom: 2rem;
+    }
+    .grid {
+      display: grid;
+      gap: 0.75rem;
+      max-width: 28rem;
+    }
+    a.door {
+      display: block;
+      padding: 0.9rem 1.1rem;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      color: var(--ink);
+      text-decoration: none;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    a.door:hover {
+      border-color: var(--accent);
+      background: #1a2030;
+    }
+    a.door strong {
+      display: block;
+      color: var(--accent);
+      font-size: 0.95rem;
+      margin-bottom: 0.2rem;
+    }
+    a.door span {
+      font-size: 0.8rem;
+      color: var(--dim);
+    }
+    .note {
+      margin-top: 2rem;
+      font-size: 0.75rem;
+      color: var(--dim);
+      max-width: 28rem;
+      line-height: 1.4;
+    }
+    code { color: #9ab0ff; }
+  </style>
+</head>
+<body>
+  <h1>The Deck Host</h1>
+  <p class="sub">
+    Runtime gate. Open a ROM by URL, or launch the host already pointed at one:
+    <code>python deck_host.py --url …</code>
+  </p>
+  <div class="grid">
+    <a class="door" href="http://datbox.lorebox.localhost:42929/">
+      <strong>loreBOX</strong>
+      <span>local desk · start loreBOX server first if needed</span>
+    </a>
+    <a class="door" href="http://127.0.0.1:42929/">
+      <strong>loreBOX</strong>
+      <span>127.0.0.1:42929</span>
+    </a>
+  </div>
+  <p class="note">
+    This gate is for development. A shipped ROM packages The Deck Host so the operator never visits here.
+  </p>
+</body>
+</html>

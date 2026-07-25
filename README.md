@@ -35,4 +35,10 @@ Anyone building **ROMs** — compact tools and surfaces meant to feel like their
 
 ### Status
 
-Island open under this name. Runtime work follows.
+Island open. **Shell stage 1** is in `shell/` (reworked from the old pocket-browser; originals kept in `shell/from-mypi/` and on the myPI tree).
+
+```bat
+cd shell
+pip install -r requirements.txt
+python deck_host.py --url http://127.0.0.1:42929/
+```

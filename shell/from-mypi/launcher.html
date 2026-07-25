@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>mypi — pocket gate</title>
+  <style>
+    :root {
+      --bg: #0a100e;
+      --panel: #121c18;
+      --ink: #b8e0c8;
+      --dim: #5a8a6a;
+      --accent: #3dcf7a;
+      --line: #2a4a38;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: radial-gradient(ellipse at top, #15241c 0%, var(--bg) 55%);
+      color: var(--ink);
+      padding: 2.5rem 1.5rem 3rem;
+    }
+    h1 {
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin: 0 0 0.35rem;
+    }
+    .sub {
+      color: var(--dim);
+      font-size: 0.95rem;
+      max-width: 36rem;
+      line-height: 1.45;
+      margin-bottom: 2rem;
+    }
+    .grid {
+      display: grid;
+      gap: 0.75rem;
+      max-width: 28rem;
+    }
+    a.door {
+      display: block;
+      padding: 0.9rem 1.1rem;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      color: var(--ink);
+      text-decoration: none;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    a.door:hover {
+      border-color: var(--accent);
+      background: #162820;
+    }
+    a.door strong {
+      display: block;
+      color: var(--accent);
+      font-size: 0.95rem;
+      margin-bottom: 0.2rem;
+    }
+    a.door span {
+      font-size: 0.8rem;
+      color: var(--dim);
+    }
+    .note {
+      margin-top: 2rem;
+      font-size: 0.75rem;
+      color: var(--dim);
+      max-width: 28rem;
+      line-height: 1.4;
+    }
+    code { color: #8fd4a8; }
+  </style>
+</head>
+<body>
+  <h1>Pocket Internet</h1>
+  <p class="sub">
+    One host under the hood: <code>b</code> · path <code>/{sys}/…</code>.
+    No new fake domains. Pocket title bar hides the host leadline (path only).
+  </p>
+  <div class="grid">
+    <a class="door" href="http://b/www/lab/home">
+      <strong>WWW · Tool Lab</strong>
+      <span>/www/lab/home — pretend site · all tool tests</span>
+    </a>
+    <a class="door" href="http://b/www/danyi/index">
+      <strong>WWW · danyi.com</strong>
+      <span>/www/danyi/index — restored DEMO rooms (not a remake)</span>
+    </a>
+    <a class="door" href="http://b/starline/news/headlines">
+      <strong>Starline · News</strong>
+      <span>/starline/news/headlines</span>
+    </a>
+    <a class="door" href="http://b/starline/chester/crates">
+      <strong>Starline · Crates</strong>
+      <span>/starline/chester/crates</span>
+    </a>
+    <a class="door" href="http://b/starline/charlie/threads">
+      <strong>Starline · Charlie</strong>
+      <span>/starline/charlie/threads</span>
+    </a>
+    <a class="door" href="http://b/starline/satora/shelves">
+      <strong>Starline · TPS</strong>
+      <span>/starline/satora/shelves</span>
+    </a>
+    <a class="door" href="http://b/book/terminal_girls/oriel">
+      <strong>Book · Oriel</strong>
+      <span>/book/terminal_girls/oriel</span>
+    </a>
+    <a class="door" href="http://b/">
+      <strong>Port b index</strong>
+      <span>list all SYS folders</span>
+    </a>
+    <a class="door" href="http://go.edn/Terminal/IO/">
+      <strong>EDN Terminal IO</strong>
+      <span>separate stack (go.edn)</span>
+    </a>
+  </div>
+  <p class="note">
+    Needs Apache + host <code>b</code> → DocumentRoot <code>…/b</code>.
+    Junction: htdocs/my-pocket-internet → Builds/my-pocket-internet.
+  </p>
+</body>
+</html>

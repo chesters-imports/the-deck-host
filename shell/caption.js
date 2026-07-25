@@ -81,7 +81,9 @@
   }
 
   function setMagIcon(sizeStr) {
-    var btn = document.querySelector("#deck-host-caption [data-act=step_size]");
+    var btn =
+      document.querySelector("[data-deck-window-controls] [data-act=step_size]") ||
+      document.querySelector("#deck-host-caption [data-act=step_size]");
     if (!btn) return;
     // 1600 = large → show “contract”; else “expand” (arrows out / in)
     var large = sizeStr && /1600/.test(String(sizeStr));
@@ -108,6 +110,13 @@
     return document.documentElement.classList.contains("deck-host-deep");
   }
 
+  function captionBarEl() {
+    return (
+      document.querySelector("[data-deck-chrome][data-deck-integrated]") ||
+      document.getElementById("deck-host-caption")
+    );
+  }
+
   function setCaptionHeightVar(px) {
     var v = px + "px";
     document.documentElement.style.setProperty("--deck-caption-h", v); document.documentElement.style.setProperty("--pocket-caption-h", v);
@@ -129,8 +138,9 @@
 
   function setDeep(on) {
     var root = document.documentElement;
-    var bar = document.getElementById("deck-host-caption");
+    var bar = captionBarEl();
     var menu = document.getElementById("deck-host-menu");
+    var integrated = root.classList.contains("deck-host-integrated");
     if (on) {
       root.classList.add("deck-host-deep");
       if (document.body) document.body.classList.add("deck-host-deep");
@@ -146,7 +156,7 @@
       root.classList.remove("deck-host-deep");
       if (document.body) document.body.classList.remove("deck-host-deep");
       if (bar) bar.hidden = false;
-      setCaptionHeightVar(H);
+      setCaptionHeightVar(integrated ? 0 : H);
       armSurfaceDrags(false);
       try {
         localStorage.removeItem(LS_DEEP);
@@ -456,13 +466,14 @@
   }
 
   /**
-   * ROM owns the top bar: [data-deck-chrome] is the caption.
-   * Window controls land in [data-deck-window-controls] (created if missing).
+   * ROM owns the top bar entirely. Host only:
+   *  - fills [data-deck-window-controls] with min/max/close/…
+   *  - wires [data-deck-menu] (e.g. chip logo) as the doors menu
+   *  - drag on [data-deck-drag]
+   * Does NOT invent a second caption, gem, or dark bar.
    */
   function tryIntegrateRomChrome() {
-    var chrome =
-      document.querySelector("[data-deck-chrome]") ||
-      document.querySelector("header.app-chrome");
+    var chrome = document.querySelector("[data-deck-chrome]");
     if (!chrome) return false;
 
     document.documentElement.classList.add(
@@ -473,24 +484,29 @@
       document.body.classList.add("deck-host-frameless", "deck-host-integrated");
     }
 
-    // In-flow header = caption; no extra fixed bar, no double padding
-    if (!chrome.id) chrome.id = "deck-host-caption";
+    // Never inject #deck-host-caption — ROM chrome stays as-designed
     chrome.setAttribute("data-deck-integrated", "1");
 
     var drag =
       chrome.querySelector("[data-deck-drag]") ||
-      chrome.querySelector(".chrome-meta") ||
-      chrome;
-    drag.classList.add("pywebview-drag-region");
-    drag.title = (drag.title || "") + " · drag to move";
-
-    drag.addEventListener("dblclick", function (e) {
-      if (e.target && e.target.closest && e.target.closest("button, a, input, select"))
-        return;
-      e.preventDefault();
-      var a = api();
-      if (a && a.toggle_maximize) a.toggle_maximize();
-    });
+      chrome.querySelector(".chrome-meta");
+    if (drag) {
+      drag.classList.add("pywebview-drag-region");
+      if (!/drag/i.test(drag.title || "")) {
+        drag.title = ((drag.title || "").trim() + " · drag to move").trim();
+      }
+      drag.addEventListener("dblclick", function (e) {
+        if (
+          e.target &&
+          e.target.closest &&
+          e.target.closest("button, a, input, select")
+        )
+          return;
+        e.preventDefault();
+        var a = api();
+        if (a && a.toggle_maximize) a.toggle_maximize();
+      });
+    }
 
     var slot = chrome.querySelector("[data-deck-window-controls]");
     if (!slot) {
@@ -500,31 +516,31 @@
     }
     fillWindowControls(slot);
 
-    // optional gem menu on ROM chrome
-    if (!document.getElementById("deck-host-mark") && !chrome.querySelector("[data-act=menu]")) {
-      var mark = document.createElement("button");
-      mark.type = "button";
-      mark.id = "deck-host-mark";
-      mark.className = "dh-cap-mark";
-      mark.setAttribute("data-act", "menu");
-      mark.setAttribute("aria-label", "Host menu");
-      mark.title = "Menu";
-      var gem = document.createElement("span");
-      gem.className = "dh-cap-mark-gem";
-      mark.appendChild(gem);
-      mark.addEventListener("mousedown", function (e) {
+    // ROM's own chip/logo is the menu — do not inject a gem
+    var menuBtn =
+      chrome.querySelector("[data-deck-menu]") ||
+      chrome.querySelector(".chip[data-deck-menu]") ||
+      chrome.querySelector(".chip");
+    if (menuBtn) {
+      menuBtn.setAttribute("data-act", "menu");
+      menuBtn.setAttribute("role", "button");
+      menuBtn.setAttribute("aria-haspopup", "true");
+      menuBtn.setAttribute("aria-expanded", "false");
+      if (!menuBtn.id) menuBtn.id = "deck-host-mark";
+      if (!menuBtn.title) menuBtn.title = "Menu";
+      menuBtn.style.cursor = "pointer";
+      menuBtn.addEventListener("mousedown", function (e) {
         e.stopPropagation();
       });
-      mark.addEventListener("click", function (e) {
+      menuBtn.addEventListener("click", function (e) {
         e.preventDefault();
         e.stopPropagation();
         toggleMenu();
       });
-      chrome.insertBefore(mark, chrome.firstChild);
     }
 
+    // In-flow ROM header — no body offset for a fixed host bar
     setCaptionHeightVar(0);
-    injectCss();
     injectIntegratedCss();
     applyZoom(readZoom());
     ensureHostMenu();
@@ -536,25 +552,22 @@
     if (document.getElementById("deck-host-integrated-css")) return;
     var style = document.createElement("style");
     style.id = "deck-host-integrated-css";
+    // Minimal host CSS: only window-control strip + menu panel.
+    // Does not restyle the ROM header / chip.
     style.textContent =
       "html.deck-host-integrated,html.deck-host-integrated body{" +
       "--deck-caption-h:0px!important;--pocket-caption-h:0px!important}" +
-      "html.deck-host-integrated #deck-host-caption[data-deck-integrated]," +
-      "html.deck-host-integrated [data-deck-chrome]{" +
-      "position:relative;z-index:100;" +
-      "-webkit-app-region:drag}" +
-      "html.deck-host-integrated [data-deck-chrome] button," +
-      "html.deck-host-integrated [data-deck-chrome] a," +
-      "html.deck-host-integrated [data-deck-chrome] input," +
-      "html.deck-host-integrated [data-deck-chrome] select," +
       "html.deck-host-integrated [data-deck-window-controls]," +
       "html.deck-host-integrated [data-deck-window-controls] *{" +
       "-webkit-app-region:no-drag}" +
+      "html.deck-host-integrated [data-deck-menu]," +
+      "html.deck-host-integrated [data-act=menu]{" +
+      "-webkit-app-region:no-drag}" +
       "html.deck-host-integrated [data-deck-window-controls]{" +
-      "display:flex;flex-shrink:0;align-items:stretch;margin-left:auto}" +
+      "display:flex;flex-shrink:0;align-items:stretch}" +
       "html.deck-host-integrated [data-deck-window-controls] .dh-cap-btn{" +
       "width:36px;border:0;background:transparent;color:inherit;" +
-      "font-size:13px;cursor:pointer;line-height:32px;padding:0;opacity:0.75}" +
+      "font-size:13px;cursor:pointer;line-height:32px;padding:0;opacity:0.72}" +
       "html.deck-host-integrated [data-deck-window-controls] .dh-cap-btn:hover{" +
       "opacity:1;background:rgba(0,0,0,.06)}" +
       "html.deck-host-integrated [data-deck-window-controls] .dh-cap-btn.close:hover{" +
@@ -568,17 +581,8 @@
       "html.deck-host-integrated [data-deck-window-controls] .deep-btn:hover .dh-eye-open{display:none}" +
       "html.deck-host-integrated [data-deck-window-controls] .deep-btn:hover .dh-eye-shut{display:block}" +
       "html.deck-host-integrated.deck-host-deep [data-deck-chrome]{display:none!important}" +
-      "html.deck-host-integrated .dh-cap-mark{" +
-      "flex-shrink:0;width:28px;height:28px;margin:0;padding:0;border:0;cursor:pointer;" +
-      "display:flex;align-items:center;justify-content:center;background:transparent;" +
-      "border-radius:4px}" +
-      "html.deck-host-integrated .dh-cap-mark:hover{background:rgba(0,0,0,.06)}" +
-      "html.deck-host-integrated .dh-cap-mark-gem{" +
-      "display:block;width:8px;height:8px;" +
-      "background:linear-gradient(135deg,#5a8ab0,#7ab0d0);" +
-      "box-shadow:0 0 6px rgba(90,138,176,.4)}" +
       "html.deck-host-integrated #deck-host-menu{" +
-      "top:36px;left:0;min-width:200px;z-index:2147483001;" +
+      "top:36px;left:8px;min-width:200px;z-index:2147483001;" +
       "position:fixed;margin:0;padding:6px 0;" +
       "background:#e8edf2;border:1px solid #c5d0dc;color:#2a3540;" +
       "font:12px system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.12)}" +

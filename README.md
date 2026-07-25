@@ -1,28 +1,38 @@
 ```
 =================================================
   POCKET WINDOWS
-  a glass for pocket apps
+  pocket apps, in a real window
 =================================================
 ```
 
-**Pocket Windows** is the glass your pocket apps run in.
+**Pocket Windows** turns a small website (or local web app) into software you can open like any other desktop program.
 
-Makers build toys — desks, archive boxes, little surfaces.  
-Pocket Windows is the window they inhabit when they leave the workbench and become software you can open with one click.
+Point it at an app. Package it. Double-click.  
+The window is the product chrome; **your app** is the product.
 
-### House note
+### Who it’s for
 
-Toys keep their own islands and their own files.  
-Pocket Windows is the **glass and the packing** — not the lore inside the box, not the shop that stocks the myth.
+Anyone building **pocket apps** — compact tools and surfaces meant to feel like their own program, not a tab lost in a browser.
 
-A finished pocket app is a **whole thing**: glass + toy, double-click, no second ritual.
+### What you get
 
-### On the shelf
+- A dedicated **window** for your app (not a browser browser)
+- A path to **ship one app as one install** — your files + this runtime, one icon
+- Room later for a **pack shelf** (many apps in one Pocket Windows install) if you want that shape
 
-First glass tenant in this season: **loreBOX** (DatBox Studio).  
-Later, a **ROM deck** may hold many packs in one house. That dream is not this release.
+### What it does not do
+
+- It does not replace your app’s own data, settings, or logic  
+- It does not require the operator to keep a separate server console open for normal use  
+- It is not tied to a single studio or title — any pocket app can wear it
+
+### Layout
+
+| Path | Role |
+|------|------|
+| `shell/` | Window runtime |
+| `docs/` | Maker notes |
 
 ### Status
 
-This island is established. The glass is being cut.  
-`docs/` holds studio paper for the house. `shell/` holds the window.
+Island open. Runtime work follows.

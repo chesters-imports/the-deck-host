@@ -1,7 +1,7 @@
-# Studio paper — Pocket Windows
+# Docs
 
-| Sheet | Subject |
-|--------|---------|
-| [[ship-model]] | How toys leave the workbench and become whole apps |
+| File | Topic |
+|------|--------|
+| [ship-model.md](./ship-model.md) | How to ship an app with Pocket Windows |
 
-Root [[README]] is the product face of the house.
+Product overview: [README.md](../README.md) at the repo root.

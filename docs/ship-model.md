@@ -1,71 +1,58 @@
-# How pocket apps leave the workbench
+# Shipping with Pocket Windows
 
-**House:** Pocket Windows  
-**Season:** first glass — per-app ship
+## Goal
 
----
+The person who uses your app should:
 
-## The finished thing
+1. Install or unpack **one** folder (or installer)
+2. Double-click **one** icon
+3. Use your app
 
-When a toy is ready for hands that are not on the workbench, it leaves as **one product**:
-
-```
-loreBOX/
-  (the glass — Pocket Windows, wearing this toy’s name)
-  app/            the desk or surface
-  safe_box/       what the operator saves
-  box_sets/       what the ROM remembers as settings
-```
-
-Open it. It runs.  
-No spare terminal. No second window whose only job is to keep a server polite.  
-The glass owns the life of the process: wake the surface, keep the window, sleep clean when closed.
+They should not need a second window running a server “for” the app, or a development environment.
 
 ---
 
-## Workbench vs shelf
+## Recommended shape: one app, one package
 
-| Place | What happens |
+Each product ships as its own desktop app. Pocket Windows is the **runtime inside that package**, not a separate program the user must install first.
+
+Example layout (names are yours to choose):
+
+```
+YourApp/
+  YourApp.exe          # Pocket Windows runtime, configured for this app
+  app/                 # your web UI / local site
+  data/                # optional — saves, settings, user files
+```
+
+On launch, the runtime starts whatever local services your app needs (if any), opens the window on your app’s entry page, and tears those services down when the window closes.
+
+---
+
+## While you are building
+
+You may run your app’s server and the window separately. That is a **development** setup only. It is not how a finished app should be explained or delivered.
+
+---
+
+## Later option: one Pocket Windows, many packs
+
+A single Pocket Windows install could load many app packs from a shelf (a “ROM deck” style library). Same runtime, different distribution story. Optional; not required for the first shipping path.
+
+---
+
+## Separate source, whole product
+
+| Piece | Where it lives |
 |--------|----------------|
-| **Workbench** | Wires and hands may run pieces apart — surface here, glass there — while cutting |
-| **Shelf** | One icon. One product name. The operator never performs the workbench ritual |
+| Pocket Windows (this project) | Runtime and packaging |
+| Your app’s source | Your own project / repo |
+| What the user installs | Runtime + your app files, branded as **your** product |
 
-The workbench is not what we stock.
-
----
-
-## Two dreams of the house
-
-### Now — each toy its own glass
-**loreBOX** ships as loreBOX.  
-The Pocket Windows runtime is **inside** that package, quiet, branded for that toy.
-
-Other toys may ship the same way: whole apps, separate names on the desk.
-
-### Later — the ROM deck
-One Pocket Windows install; many packs on a shelf; load a ROM when you want it.  
-Same house, later room. Not the first key on the ring.
+Source projects can stay separate. The **installed** thing is one product.
 
 ---
 
-## Islands of the making
+## Success check
 
-| Island | Holds |
-|--------|--------|
-| **Pocket Windows** | The glass, the packing story |
-| **DatBox Studio** (and kin) | The toys — desks, mats, settings |
-| **The shipped folder** | Glass + one toy, named for the operator |
-
-Making stays on separate islands.  
-What the operator receives is **whole**.
-
----
-
-## First light (when the glass is cut)
-
-Double-click **loreBOX**.  
-A pocket window opens on the desk.  
-The safe box is on disk beside the app.  
-Close the window — nothing is left begging in a terminal.
-
-— Pocket Windows studio paper
+Double-click the app → window opens on your UI → user work saves where your app says → quit closes cleanly, with nothing left running that the user did not ask for.

@@ -73,7 +73,14 @@ BASE = ""  # optional prefix for relative go() paths
 
 
 def apply_profile(name: str) -> None:
-    """desk = classic ROM window; companion = narrow always-handy rail."""
+    """
+    Window geometry by ROM kind — do NOT collapse everyone into one size.
+
+    desk     — classic ROM (import-station, general) 1024×768
+    datbox   — short DATBOX bags (lore/shot) — only those ROMs opt in
+    office   — Big Box / document tools — wider desk for kanban etc.
+    companion/rail — tall strip (Time Machina)
+    """
     global _MAG_SMALL, _MAG_LARGE, _MIN_SIZE, _ON_TOP, _PROFILE
     p = (name or "desk").strip().lower()
     if p in ("companion", "rail", "companion-rail", "strip"):
@@ -83,13 +90,26 @@ def apply_profile(name: str) -> None:
         _MAG_LARGE = (400, 920)
         _MIN_SIZE = (300, 420)
         _ON_TOP = True
-    else:
-        _PROFILE = "desk"
-        # DATBOX ROMs — a bit shorter so two stack in one column on ~1080p
-        # (was 1024×768; 768×2 overshoots a normal desktop)
+    elif p in ("datbox", "dat-box", "short"):
+        _PROFILE = "datbox"
+        # DATBOX only — short so two stack on ~1080p (must not be default desk)
         _MAG_SMALL = (960, 520)
         _MAG_LARGE = (1280, 800)
         _MIN_SIZE = (640, 400)
+        _ON_TOP = False
+    elif p in ("office", "bigbox", "bbc", "document"):
+        _PROFILE = "office"
+        # sopr Documenter etc. — room for section rail + bucket / kanban
+        _MAG_SMALL = (1280, 800)
+        _MAG_LARGE = (1600, 1000)
+        _MIN_SIZE = (900, 560)
+        _ON_TOP = False
+    else:
+        _PROFILE = "desk"
+        # Classic default — charlie toys, import station, etc.
+        _MAG_SMALL = (1024, 768)
+        _MAG_LARGE = (1600, 1200)
+        _MIN_SIZE = (640, 480)
         _ON_TOP = False
 
 
@@ -536,8 +556,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--profile",
         default=os.environ.get("DECK_HOST_PROFILE", "desk").strip() or "desk",
-        choices=("desk", "companion", "rail"),
-        help="desk = classic ROM window; companion/rail = narrow strip (always-on-top)",
+        choices=("desk", "datbox", "office", "companion", "rail"),
+        help="desk=1024×768 · datbox=short · office=wide docs · companion/rail=strip",
     )
     p.add_argument(
         "--width",
@@ -729,7 +749,7 @@ if __name__ == "__main__":
             "  caption: gem menu · Alt+M · Ctrl+N new · drag · size · "
             "Ctrl± zoom · F11 deep · Esc surface"
         )
-    print("  profiles: desk (classic ROM) · companion/rail (narrow strip)")
+    print("  profiles: desk · datbox · office · companion/rail")
     if not CAPTION_JS.is_file():
         print(f"  WARNING: missing {CAPTION_JS}")
     main()

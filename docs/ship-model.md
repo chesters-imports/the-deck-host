@@ -37,12 +37,14 @@ You may run your ROM’s server and the window separately. That is a **developme
 
 ## Window profiles
 
+Each ROM **opts into** its size. Do not bake DATBOX geometry into the default desk — that clobbered import-station and other classic ROMs.
+
 | Profile | Feel | Flags |
 |---------|------|--------|
-| **desk** (default) | DATBOX-style ROM ~960×520 (two stack on ~1080p). Size-step grows. | `--profile desk` |
-| **companion** / **rail** | Tall narrow strip (~368×740), always-on-top (Time Machina). | `--profile companion` |
-
-Use companion for VPN-rail / always-handy toys (e.g. Time Machina). Desk stays the default for full DATBOX-style ROMs.
+| **desk** (default) | Classic ROM ~1024×768 · size-step to 1600×1200 | `--profile desk` |
+| **datbox** | Short DATBOX bags ~960×520 (two stack on ~1080p) | `--profile datbox` (loreBOX / shotBOX only) |
+| **office** | Wide docs / kanban ~1280×800 (Big Box sopr) | `--profile office` |
+| **companion** / **rail** | Tall narrow strip (~368×740), always-on-top (Time Machina) | `--profile companion` |
 
 Also: `--width` / `--height` / `--min-width` / `--min-height` / `--on-top` / `--no-on-top`.
 

@@ -61,11 +61,15 @@ _FRAMELESS = os.environ.get("DECK_HOST_FRAMELESS", "1").strip().lower() not in (
 _CAPTION_SRC = CAPTION_JS.read_text(encoding="utf-8") if CAPTION_JS.is_file() else ""
 
 # Window geometry — mutated by --profile / --width / etc. in main()
-_MAG_SMALL = (1024, 768)
-_MAG_LARGE = (1600, 1200)
+# Three tiers: compact < standard < expanded (+ maximized = OS max)
+_MAG_COMPACT = (880, 560)
+_MAG_SMALL = (1024, 768)  # standard
+_MAG_LARGE = (1600, 1200)  # expanded
 _MIN_SIZE = (640, 480)
 _ON_TOP = False
 _PROFILE = "desk"  # desk | companion
+# Startup mode from --window-mode / env (applied at create + shown)
+_START_WINDOW_MODE = "standard"
 
 # Set in main() from CLI / env
 HOME = LAUNCHER
@@ -76,86 +80,145 @@ def apply_profile(name: str) -> None:
     """
     Window geometry by ROM kind — do NOT collapse everyone into one size.
 
-    desk     — classic ROM (import-station, general) 1024×768
-    datbox   — short DATBOX bags (lore/shot) — only those ROMs opt in
-    office   — Big Box / document tools — wider desk for kanban etc.
+    desk     — classic ROM 1024×768 (standard); compact + expanded rungs
+    datbox   — legacy short bags (optional)
+    office   — Big Box / document tools
     companion/rail — tall strip (Time Machina)
     """
-    global _MAG_SMALL, _MAG_LARGE, _MIN_SIZE, _ON_TOP, _PROFILE
+    global _MAG_COMPACT, _MAG_SMALL, _MAG_LARGE, _MIN_SIZE, _ON_TOP, _PROFILE
     p = (name or "desk").strip().lower()
     if p in ("companion", "rail", "companion-rail", "strip"):
         _PROFILE = "companion"
-        # Time Machina etc. — tall strip (needs message body height)
+        _MAG_COMPACT = (320, 620)
         _MAG_SMALL = (368, 740)
         _MAG_LARGE = (400, 920)
         _MIN_SIZE = (300, 420)
         _ON_TOP = True
     elif p in ("datbox", "dat-box", "short"):
         _PROFILE = "datbox"
-        # DATBOX only — short so two stack on ~1080p (must not be default desk)
+        # short bags — kept for shotBOX etc.; lore prefers desk now
+        _MAG_COMPACT = (800, 440)
         _MAG_SMALL = (960, 520)
         _MAG_LARGE = (1280, 800)
         _MIN_SIZE = (640, 400)
         _ON_TOP = False
     elif p in ("office", "bigbox", "bbc", "document"):
         _PROFILE = "office"
-        # sopr Documenter etc. — room for section rail + bucket / kanban
+        _MAG_COMPACT = (1024, 680)
         _MAG_SMALL = (1280, 800)
         _MAG_LARGE = (1600, 1000)
         _MIN_SIZE = (900, 560)
         _ON_TOP = False
     else:
         _PROFILE = "desk"
-        # Classic default — charlie toys, import station, etc.
+        # Classic ROM desk — real window proportions
+        _MAG_COMPACT = (880, 560)
         _MAG_SMALL = (1024, 768)
         _MAG_LARGE = (1600, 1200)
         _MIN_SIZE = (640, 480)
         _ON_TOP = False
 
 
+def normalize_window_mode(mode: str | None) -> str:
+    m = str(mode or "standard").strip().lower()
+    if m in ("maximized", "maximize", "max"):
+        return "maximized"
+    if m in ("expanded", "large", "wide", "big"):
+        return "expanded"
+    if m in ("compact", "small", "mini", "short"):
+        return "compact"
+    return "standard"
+
+
+def size_for_mode(mode: str) -> tuple[int, int]:
+    m = normalize_window_mode(mode)
+    if m == "expanded":
+        return _MAG_LARGE
+    if m == "compact":
+        return _MAG_COMPACT
+    if m == "maximized":
+        # open at expanded then maximize on shown
+        return _MAG_LARGE
+    return _MAG_SMALL
+
+
 class DeckHostApi:
     """JS bridge: window.pywebview.api.*"""
 
-    def __init__(self) -> None:
+    def __init__(self, start_mode: str = "standard") -> None:
         self._window: webview.Window | None = None
         self._maximized = False
-        self._normal_size = _MAG_SMALL
-        self._mag_large = False
+        self._mag_compact = _MAG_COMPACT
         self._mag_small = _MAG_SMALL
         self._mag_large_size = _MAG_LARGE
+        # tier under the chrome: compact | standard | expanded
+        self._tier = "standard"
+        start = normalize_window_mode(start_mode)
+        if start == "maximized":
+            self._tier = "expanded"
+            self._start_maximized = True
+        elif start == "compact":
+            self._tier = "compact"
+            self._start_maximized = False
+        elif start == "expanded":
+            self._tier = "expanded"
+            self._start_maximized = False
+        else:
+            self._tier = "standard"
+            self._start_maximized = False
+        self._normal_size = size_for_mode(
+            "expanded" if self._start_maximized else self._tier
+        )
+        # legacy flag used by older step logic
+        self._mag_large = self._tier == "expanded"
         self._allow_maximize = _PROFILE != "companion"
+        self._startup_applied = False
 
     def bind(self, window: webview.Window) -> None:
         self._window = window
+
+    def apply_startup_mode(self) -> str:
+        """Call once window is shown — maximizes if prefs asked for it."""
+        if self._startup_applied:
+            return self._mode_payload()
+        self._startup_applied = True
+        if self._start_maximized and self._allow_maximize:
+            return self.set_window_mode("maximized").get("payload") or self._mode_payload()
+        # re-assert tier size (Windows sometimes ignores create size)
+        return self.set_window_mode(self._tier).get("payload") or self._mode_payload()
 
     def minimize(self) -> None:
         if self._window:
             self._window.minimize()
 
-    def toggle_maximize(self) -> None:
+    def toggle_maximize(self) -> str:
+        """Toggle OS maximize. Returns mode payload for caption/ROM prefs."""
         if not self._window:
-            return
-        # Companion rails: maximize is wrong shape — step height instead
+            return self._mode_payload()
         if not self._allow_maximize:
-            self.step_window_size()
-            return
+            return self.step_window_size()
         if self._maximized:
             w, h = self._normal_size
-            self._window.restore()
             try:
+                self._window.restore()
                 self._window.resize(w, h)
             except Exception:
                 pass
             self._maximized = False
         else:
             try:
-                self._normal_size = (self._window.width, self._window.height)
+                self._normal_size = (int(self._window.width), int(self._window.height))
             except Exception:
                 pass
-            self._window.maximize()
-            self._maximized = True
+            try:
+                self._window.maximize()
+                self._maximized = True
+            except Exception:
+                pass
+        return self._mode_payload()
 
     def step_window_size(self) -> str:
+        """Toggle standard ↔ expanded (compact only via set_window_mode / Settings)."""
         if not self._window:
             return ""
         try:
@@ -165,20 +228,121 @@ class DeckHostApi:
         except Exception:
             pass
 
-        if self._mag_large:
-            target = self._mag_small
-            self._mag_large = False
+        if self._tier == "expanded":
+            self._tier = "standard"
         else:
-            target = self._mag_large_size
-            self._mag_large = True
-
+            # compact or standard → expanded
+            self._tier = "expanded"
+        self._mag_large = self._tier == "expanded"
+        target = self._size_for_tier(self._tier)
         try:
             self._window.resize(target[0], target[1])
             self._normal_size = target
         except Exception:
-            self._mag_large = not self._mag_large
-            return f"{target[0]}x{target[1]}"
-        return f"{target[0]}x{target[1]}"
+            pass
+        return self._mode_payload(target)
+
+    def _size_for_tier(self, tier: str) -> tuple[int, int]:
+        if tier == "expanded":
+            return self._mag_large_size
+        if tier == "compact":
+            return self._mag_compact
+        return self._mag_small
+
+    def _mode_name(self) -> str:
+        if self._maximized:
+            return "maximized"
+        return self._tier if self._tier in ("compact", "standard", "expanded") else "standard"
+
+    def _mode_payload(self, size: tuple[int, int] | None = None) -> str:
+        """'compact|standard|expanded|maximized:WxH' for caption/ROM."""
+        if size is None:
+            try:
+                if self._window:
+                    size = (int(self._window.width), int(self._window.height))
+                else:
+                    size = self._normal_size
+            except Exception:
+                size = self._normal_size
+        return f"{self._mode_name()}:{size[0]}x{size[1]}"
+
+    def get_window_mode(self) -> dict:
+        """ROM prefs: compact | standard | expanded | maximized."""
+        try:
+            w = int(self._window.width) if self._window else self._normal_size[0]
+            h = int(self._window.height) if self._window else self._normal_size[1]
+        except Exception:
+            w, h = self._normal_size
+        return {
+            "mode": self._mode_name(),
+            "size": f"{w}x{h}",
+            "compact": f"{self._mag_compact[0]}x{self._mag_compact[1]}",
+            "standard": f"{self._mag_small[0]}x{self._mag_small[1]}",
+            "expanded": f"{self._mag_large_size[0]}x{self._mag_large_size[1]}",
+            "payload": self._mode_payload((w, h)),
+            "allow_maximize": self._allow_maximize,
+        }
+
+    def _force_tier(self, tier: str) -> None:
+        """Leave maximize; set compact | standard | expanded frame size."""
+        tier = tier if tier in ("compact", "standard", "expanded") else "standard"
+        self._tier = tier
+        self._mag_large = tier == "expanded"
+        target = self._size_for_tier(tier)
+        self._normal_size = target
+        if not self._window:
+            return
+        try:
+            if self._maximized:
+                self._window.restore()
+                self._maximized = False
+            self._window.resize(target[0], target[1])
+        except Exception:
+            pass
+
+    def set_window_mode(self, mode: str = "standard") -> dict:
+        """
+        Apply compact | standard | expanded | maximized.
+        Not exclusive F11 fullscreen (use Deep for immersion).
+        """
+        want_name = normalize_window_mode(mode)
+
+        if not self._window:
+            if want_name == "maximized":
+                self._start_maximized = True
+                self._tier = "expanded"
+                self._mag_large = True
+                self._normal_size = self._mag_large_size
+            else:
+                self._start_maximized = False
+                self._tier = want_name if want_name != "maximized" else "standard"
+                if self._tier not in ("compact", "standard", "expanded"):
+                    self._tier = "standard"
+                self._mag_large = self._tier == "expanded"
+                self._normal_size = self._size_for_tier(self._tier)
+            return self.get_window_mode()
+
+        if want_name == "maximized":
+            if not self._allow_maximize:
+                self._force_tier("expanded")
+                return self.get_window_mode()
+            if not self._maximized:
+                try:
+                    self._normal_size = (
+                        int(self._window.width),
+                        int(self._window.height),
+                    )
+                except Exception:
+                    pass
+                try:
+                    self._window.maximize()
+                    self._maximized = True
+                except Exception:
+                    pass
+            return self.get_window_mode()
+
+        self._force_tier(want_name)
+        return self.get_window_mode()
 
     def close(self) -> None:
         if self._window:
@@ -388,6 +552,19 @@ def _attach_window_events(window: webview.Window, api: DeckHostApi) -> None:
         except Exception:
             pass
         inject_caption(short)
+        # Re-apply size/maximize after surface is up (create size is often ignored
+        # or reset; JS prefs also call set_window_mode as a second belt).
+        def _startup() -> None:
+            try:
+                payload = api.apply_startup_mode()
+                if _DEBUG:
+                    print(f"[deck-host] startup window mode → {payload}", flush=True)
+            except Exception as e:
+                if _DEBUG:
+                    print(f"[deck-host] startup window mode failed: {e}", flush=True)
+
+        threading.Timer(0.15, _startup).start()
+        threading.Timer(0.6, _startup).start()
 
     window.events.loaded += on_loaded
 
@@ -397,7 +574,7 @@ def spawn_deck_window(
     width: int | None = None,
     height: int | None = None,
 ) -> webview.Window:
-    api = DeckHostApi()
+    api = DeckHostApi(start_mode=_START_WINDOW_MODE)
     kw: dict = {
         "title": TITLE_ROOT,
         "url": url or HOME,
@@ -589,6 +766,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Keep window above others (default: on for companion profile)",
     )
+    p.add_argument(
+        "--window-mode",
+        default=os.environ.get("DECK_HOST_WINDOW_MODE", "standard").strip()
+        or "standard",
+        help="Startup size: compact | standard | expanded | maximized",
+    )
     return p.parse_args(argv)
 
 
@@ -603,7 +786,8 @@ def _env_int(name: str) -> int | None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    global HOME, BASE, TITLE_ROOT, _MAG_SMALL, _MAG_LARGE, _MIN_SIZE, _ON_TOP
+    global HOME, BASE, TITLE_ROOT, _MAG_COMPACT, _MAG_SMALL, _MAG_LARGE, _MIN_SIZE, _ON_TOP
+    global _START_WINDOW_MODE
 
     args = parse_args(argv)
     apply_profile(args.profile)
@@ -620,6 +804,7 @@ def main(argv: list[str] | None = None) -> None:
         )
     if args.on_top is not None:
         _ON_TOP = bool(args.on_top)
+    _START_WINDOW_MODE = normalize_window_mode(args.window_mode)
 
     if args.title:
         TITLE_ROOT = args.title.strip() or TITLE_ROOT
@@ -668,12 +853,13 @@ def main(argv: list[str] | None = None) -> None:
     except Exception:
         pass
 
-    api = DeckHostApi()
+    api = DeckHostApi(start_mode=_START_WINDOW_MODE)
+    start_w, start_h = size_for_mode(_START_WINDOW_MODE)
     win_kw: dict = {
         "title": TITLE_ROOT,
         "url": HOME,
-        "width": _MAG_SMALL[0],
-        "height": _MAG_SMALL[1],
+        "width": start_w,
+        "height": start_h,
         "min_size": _MIN_SIZE,
         "background_color": "#0a0c12",
         "text_select": True,
@@ -682,15 +868,28 @@ def main(argv: list[str] | None = None) -> None:
         "resizable": True,
         "shadow": True,
         "js_api": api,
+        "maximized": _START_WINDOW_MODE == "maximized" and _PROFILE != "companion",
     }
     if _ON_TOP:
         win_kw["on_top"] = True
-    window = webview.create_window(**win_kw)
+    # older pywebview may not accept maximized=
+    try:
+        window = webview.create_window(**win_kw)
+    except TypeError:
+        win_kw.pop("maximized", None)
+        window = webview.create_window(**win_kw)
     api.bind(window)
+    if _START_WINDOW_MODE == "maximized":
+        api._maximized = True
+        api._start_maximized = True
     _attach_window_events(window, api)
     print(
         f"[deck-host] profile={_PROFILE}  "
-        f"size={_MAG_SMALL[0]}x{_MAG_SMALL[1]}  "
+        f"mode={_START_WINDOW_MODE}  "
+        f"size={start_w}x{start_h}  "
+        f"tiers compact={_MAG_COMPACT[0]}x{_MAG_COMPACT[1]} "
+        f"standard={_MAG_SMALL[0]}x{_MAG_SMALL[1]} "
+        f"expanded={_MAG_LARGE[0]}x{_MAG_LARGE[1]}  "
         f"min={_MIN_SIZE[0]}x{_MIN_SIZE[1]}  "
         f"on_top={_ON_TOP}",
         flush=True,

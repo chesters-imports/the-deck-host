@@ -28,6 +28,22 @@
     { label: "New window", action: "new_window" },
   ];
 
+  /**
+   * ROMs may fully replace doors with window.DECK_ROM_MENU = [
+   *   { label|labelFn, action?, run?, sep? }, …
+   * ]
+   * When set, DECK_ROM_MENU_EXTRAS is ignored (put everything in DECK_ROM_MENU).
+   */
+  function doorsList() {
+    var rom = window.DECK_ROM_MENU;
+    if (rom && rom.length) return rom;
+    return DOORS;
+  }
+
+  function romOwnsMenu() {
+    return !!(window.DECK_ROM_MENU && window.DECK_ROM_MENU.length);
+  }
+
   function api() {
     return window.pywebview && window.pywebview.api;
   }
@@ -80,25 +96,70 @@
     }
   }
 
+  function parseWindowPayload(s) {
+    // "maximized|expanded|standard|compact:WxH" | legacy size string
+    var str = String(s || "");
+    var mode = null;
+    var size = str;
+    var m = str.match(/^(standard|expanded|maximized|compact):(.+)$/i);
+    if (m) {
+      mode = m[1].toLowerCase();
+      size = m[2];
+    } else if (/1600|1280x800|400x920/i.test(str)) {
+      mode = "expanded";
+    } else if (str) {
+      mode = "standard";
+    }
+    return { mode: mode, size: size, raw: str };
+  }
+
+  function notifyWindowMode(payload) {
+    try {
+      var parsed = parseWindowPayload(payload);
+      if (typeof window.DECK_ON_WINDOW_MODE === "function" && parsed.mode) {
+        window.DECK_ON_WINDOW_MODE(parsed.mode, parsed.size || payload);
+      }
+    } catch (e) {}
+  }
+
+  function runMaximize() {
+    var a = api();
+    if (!a || !a.toggle_maximize) return;
+    try {
+      var r = a.toggle_maximize();
+      if (r && typeof r.then === "function") {
+        r.then(function (s) {
+          notifyWindowMode(s);
+          setMagIcon(s);
+        }).catch(function () {});
+      } else if (r) {
+        notifyWindowMode(r);
+        setMagIcon(r);
+      }
+    } catch (e) {}
+  }
+
   function setMagIcon(sizeStr) {
     var btn =
       document.querySelector("[data-deck-window-controls] [data-act=step_size]") ||
       document.querySelector("#deck-host-caption [data-act=step_size]");
     if (!btn) return;
-    // 1600 = large → show “contract”; else “expand” (arrows out / in)
-    var large = sizeStr && /1600/.test(String(sizeStr));
+    var parsed = parseWindowPayload(sizeStr);
+    var large = parsed.mode === "expanded";
     btn.textContent = large ? "⤡" : "⤢";
     btn.title = large
-      ? "Window · contract to 1024×768"
-      : "Window · expand to 1600×1200";
+      ? "Window · Standard size"
+      : "Window · Expanded size";
   }
 
   function flashSizeHint(s) {
     if (!s) return;
+    var parsed = parseWindowPayload(s);
     setMagIcon(s);
+    notifyWindowMode(s);
     var lab = document.querySelector("#deck-host-caption .dh-cap-zoom");
     if (!lab) return;
-    lab.textContent = String(s).replace("x", "×");
+    lab.textContent = String(parsed.size || s).replace("x", "×");
     lab.classList.add("is-flash");
     setTimeout(function () {
       lab.classList.remove("is-flash");
@@ -186,9 +247,16 @@
         setDeep(false);
       });
       document.body.appendChild(el);
+      // Brief toast, then fully gone (not a sticky dim overlay on desk ROMs)
       setTimeout(function () {
-        if (el && el.parentNode) el.classList.add("is-dim");
-      }, 2200);
+        if (el && el.parentNode) el.classList.add("is-fade");
+      }, 1600);
+      setTimeout(function () {
+        if (el && el.parentNode) {
+          el.classList.add("is-gone");
+          el.setAttribute("aria-hidden", "true");
+        }
+      }, 2800);
     }
     // Fallback grabber only if surface didn't mark a drag slug
     var hasSurface = document.querySelector("[data-deck-drag]");
@@ -213,6 +281,13 @@
 
   function runDoor(item) {
     var a = api();
+    if (!item) return;
+    if (typeof item.run === "function") {
+      try {
+        item.run();
+      } catch (err) {}
+      return;
+    }
     if (item.action === "home") {
       if (a && a.home) a.home();
       else location.reload();
@@ -233,6 +308,7 @@
     if (item.action === "hard_refresh") {
       if (a && a.hard_refresh) a.hard_refresh();
       else if (typeof window.WWWHardRefresh === "function") window.WWWHardRefresh();
+      else location.reload();
       return;
     }
     if (item.action === "new_window") {
@@ -251,6 +327,10 @@
     }
     if (item.action === "forward") {
       history.forward();
+      return;
+    }
+    if (item.action === "exit" || item.action === "close") {
+      if (a && a.close) a.close();
       return;
     }
     if (item.path) {
@@ -276,7 +356,7 @@
 
   /** ROMs may set window.DECK_ROM_MENU_EXTRAS = [{ label|labelFn, run }] */
   function appendRomMenuExtras(menu) {
-    if (!menu) return;
+    if (!menu || romOwnsMenu()) return;
     // clear previous extras (rebuild-safe)
     var old = menu.querySelectorAll("[data-deck-rom-extra]");
     for (var i = 0; i < old.length; i++) old[i].remove();
@@ -313,9 +393,45 @@
     });
   }
 
+  function clearMenuItems(menu) {
+    if (!menu) return;
+    var kids = Array.prototype.slice.call(menu.children);
+    for (var i = 0; i < kids.length; i++) {
+      if (kids[i].classList && kids[i].classList.contains("dh-menu-hint")) continue;
+      menu.removeChild(kids[i]);
+    }
+  }
+
+  function fillMenuItems(menu) {
+    if (!menu) return;
+    clearMenuItems(menu);
+    doorsList().forEach(function (item) {
+      if (item && item.sep) {
+        var sep = document.createElement("div");
+        sep.className = "dh-menu-sep";
+        menu.appendChild(sep);
+        return;
+      }
+      var b = document.createElement("button");
+      b.type = "button";
+      b.setAttribute("role", "menuitem");
+      b.textContent =
+        item && typeof item.labelFn === "function"
+          ? item.labelFn()
+          : (item && item.label) || "…";
+      b.addEventListener("click", function (e) {
+        e.preventDefault();
+        closeMenu();
+        runDoor(item);
+      });
+      menu.appendChild(b);
+    });
+    appendRomMenuExtras(menu);
+  }
+
   function refreshRomMenuExtras() {
     var m = document.getElementById("deck-host-menu");
-    if (m) appendRomMenuExtras(m);
+    if (m) fillMenuItems(m);
   }
 
   function toggleMenu() {
@@ -323,8 +439,8 @@
     if (!m) return;
     // if deep, surface first so menu has a home
     if (isDeep()) setDeep(false);
-    // ROM may register extras late — refresh labels each open
-    appendRomMenuExtras(m);
+    // ROM may register menu late — rebuild each open
+    fillMenuItems(m);
     m.hidden = !m.hidden;
     syncMenuMark();
     if (!m.hidden) {
@@ -435,20 +551,31 @@
       "padding:6px 14px 4px;font-size:10px;letter-spacing:.08em;" +
       "text-transform:uppercase;opacity:.45}" +
       "#deck-host-deep-hint{" +
-      "position:fixed;top:8px;left:50%;transform:translateX(-50%);" +
+      "position:fixed!important;top:8px!important;bottom:auto!important;" +
+      "left:50%!important;right:auto!important;" +
+      "transform:translateX(-50%)!important;" +
       "z-index:2147483002;padding:6px 14px;font:11px system-ui,sans-serif;" +
       "letter-spacing:.06em;text-transform:uppercase;cursor:pointer;" +
       "color:rgba(220,230,240,.75);background:rgba(10,12,18,.82);" +
       "border:1px solid rgba(120,140,200,.25);border-radius:999px;" +
-      "transition:opacity .4s ease}" +
-      "#deck-host-deep-hint.is-dim{opacity:.22}" +
-      "#deck-host-deep-hint:hover{opacity:1!important}" +
+      "transition:opacity .4s ease;" +
+      "max-width:min(90vw,420px);white-space:nowrap;overflow:hidden;" +
+      "text-overflow:ellipsis}" +
+      "#deck-host-deep-hint.is-fade{opacity:0!important;pointer-events:none!important}" +
+      "#deck-host-deep-hint.is-gone{" +
+      "opacity:0!important;pointer-events:none!important;" +
+      "visibility:hidden!important;width:0!important;height:0!important;" +
+      "padding:0!important;border:0!important;overflow:hidden!important}" +
       /* fallback corner grabber if surface has no data-deck-drag */
       "#deck-host-deep-drag{" +
-      "position:fixed;top:0;left:0;z-index:2147483001;" +
+      "position:fixed!important;top:0!important;left:0!important;" +
+      "z-index:2147483001;" +
       "width:2.5rem;height:2.5rem;cursor:grab;" +
       "background:transparent}" +
-      "#deck-host-deep-drag:active{cursor:grabbing}";
+      "#deck-host-deep-drag:active{cursor:grabbing}" +
+      "html.deck-host-frameless.deck-host-deep," +
+      "html.deck-host-frameless.deck-host-deep body{" +
+      "overflow:hidden!important}";
     document.head.appendChild(style);
   }
 
@@ -476,7 +603,7 @@
       var a = api();
       if (!a) return;
       if (act === "min" && a.minimize) a.minimize();
-      if (act === "max" && a.toggle_maximize) a.toggle_maximize();
+      if (act === "max") runMaximize();
       if (act === "close" && a.close) a.close();
     });
     return b;
@@ -593,8 +720,7 @@
         )
           return;
         e.preventDefault();
-        var a = api();
-        if (a && a.toggle_maximize) a.toggle_maximize();
+        runMaximize();
       });
     }
 
@@ -680,6 +806,34 @@
       "html.deck-host-integrated [data-deck-window-controls] .deep-btn:hover .dh-eye-open{display:none}" +
       "html.deck-host-integrated [data-deck-window-controls] .deep-btn:hover .dh-eye-shut{display:block}" +
       "html.deck-host-integrated.deck-host-deep [data-deck-chrome]{display:none!important}" +
+      /* Deep mode: lock viewport so hint never expands body scroll under status */
+      "html.deck-host-integrated.deck-host-deep," +
+      "html.deck-host-integrated.deck-host-deep body{" +
+      "overflow:hidden!important;height:100%!important;max-height:100%!important;" +
+      "margin:0!important}" +
+      /* Same fixed pill as injectCss — integrated path used to omit this (bug) */
+      "#deck-host-deep-hint{" +
+      "position:fixed!important;top:8px!important;bottom:auto!important;" +
+      "left:50%!important;right:auto!important;" +
+      "transform:translateX(-50%)!important;" +
+      "z-index:2147483002!important;padding:6px 14px;" +
+      "font:11px system-ui,sans-serif;letter-spacing:.06em;" +
+      "text-transform:uppercase;cursor:pointer;" +
+      "color:rgba(220,230,240,.85);background:rgba(10,12,18,.88);" +
+      "border:1px solid rgba(120,140,200,.3);border-radius:999px;" +
+      "transition:opacity .4s ease;pointer-events:auto;" +
+      "max-width:min(90vw,420px);white-space:nowrap;overflow:hidden;" +
+      "text-overflow:ellipsis}" +
+      "#deck-host-deep-hint.is-fade{opacity:0!important;pointer-events:none!important}" +
+      "#deck-host-deep-hint.is-gone{" +
+      "opacity:0!important;pointer-events:none!important;" +
+      "visibility:hidden!important;width:0!important;height:0!important;" +
+      "padding:0!important;border:0!important;overflow:hidden!important}" +
+      "#deck-host-deep-drag{" +
+      "position:fixed!important;top:0!important;left:0!important;" +
+      "z-index:2147483001;width:2.5rem;height:2.5rem;cursor:grab;" +
+      "background:transparent}" +
+      "#deck-host-deep-drag:active{cursor:grabbing}" +
       "html.deck-host-integrated #deck-host-menu{" +
       "top:36px;left:8px;min-width:200px;z-index:2147483001;" +
       "position:fixed;margin:0;padding:6px 0;" +
@@ -707,25 +861,7 @@
     hint.className = "dh-menu-hint";
     hint.textContent = "DECK HOST";
     menu.appendChild(hint);
-    DOORS.forEach(function (item) {
-      if (item.sep) {
-        var sep = document.createElement("div");
-        sep.className = "dh-menu-sep";
-        menu.appendChild(sep);
-        return;
-      }
-      var b = document.createElement("button");
-      b.type = "button";
-      b.setAttribute("role", "menuitem");
-      b.textContent = item.label;
-      b.addEventListener("click", function (e) {
-        e.preventDefault();
-        closeMenu();
-        runDoor(item);
-      });
-      menu.appendChild(b);
-    });
-    appendRomMenuExtras(menu);
+    fillMenuItems(menu);
     document.body.appendChild(menu);
     document.addEventListener(
       "click",
@@ -893,8 +1029,7 @@
         return;
       }
       e.preventDefault();
-      var a = api();
-      if (a && a.toggle_maximize) a.toggle_maximize();
+      runMaximize();
     });
 
     var btns = document.createElement("div");
@@ -924,7 +1059,7 @@
         var a = api();
         if (!a) return;
         if (act === "min" && a.minimize) a.minimize();
-        if (act === "max" && a.toggle_maximize) a.toggle_maximize();
+        if (act === "max") runMaximize();
         if (act === "close" && a.close) a.close();
       });
       return b;
@@ -966,26 +1101,7 @@
     hint.className = "dh-menu-hint";
     hint.textContent = "DECK HOST";
     menu.appendChild(hint);
-
-    DOORS.forEach(function (item) {
-      if (item.sep) {
-        var sep = document.createElement("div");
-        sep.className = "dh-menu-sep";
-        menu.appendChild(sep);
-        return;
-      }
-      var b = document.createElement("button");
-      b.type = "button";
-      b.setAttribute("role", "menuitem");
-      b.textContent = item.label;
-      b.addEventListener("click", function (e) {
-        e.preventDefault();
-        closeMenu();
-        runDoor(item);
-      });
-      menu.appendChild(b);
-    });
-    appendRomMenuExtras(menu);
+    fillMenuItems(menu);
 
     bar.appendChild(mark);
     bar.appendChild(drag);

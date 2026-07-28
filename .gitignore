@@ -1,4 +1,4 @@
-.obsidian/
+﻿.obsidian/
 .DS_Store
 Thumbs.db
 __pycache__/
@@ -12,3 +12,11 @@ build/
 *.exe
 *.zip
 shell/.webview_profiles/
+
+# Operator mats / papers — local only for now (un-ignore later when Hands wants them on the boat)
+**/safe_box/**
+!**/safe_box/.gitkeep
+**/paper/
+# Launcher runtime
+rom-launcher/prod/launch_sys/data/launch.log
+rom-launcher/prod/launch_sys/desk-server.log

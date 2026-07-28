@@ -1,0 +1,132 @@
+{
+  "schema": "rom-launcher.v1",
+  "sku": "CO.HOST-001-LAUNCH",
+  "title": "ROM Launcher",
+  "whisper": "start menu for the deck · cases on the table",
+  "recipes": {
+    "romcat": {
+      "title": "ROM Cat",
+      "label": "ROM CAT",
+      "sub": "yellow pages",
+      "hue": "amber",
+      "run_script": "dewey-catalog-co/rom-cat/prod/run-in-deck-host.py",
+      "port": 43132
+    },
+    "concor": {
+      "title": "Jack's Concor",
+      "label": "CONCOR",
+      "sub": "concordance desk",
+      "hue": "green",
+      "run_script": "jacks-cross/the-concor/prod/run-in-deck-host.py",
+      "port": 43150
+    },
+    "pocket-chapbook": {
+      "title": "My Pocket Chapbook",
+      "label": "CHAPS",
+      "sub": "poem pool · sheets",
+      "hue": "rose",
+      "run_script": "my-pocket-things/pocket-chapbook/prod/run-in-deck-host.py",
+      "port": 43160
+    },
+    "kde-notes-chords": {
+      "title": "KDE Notes & Chords",
+      "label": "KDE",
+      "sub": "instrumental stories",
+      "hue": "violet",
+      "run_script": "charlies-toys/kde-notes-chords/prod/run-in-deck-host.py",
+      "port": 43140
+    },
+    "lorebox": {
+      "title": "loreBOX",
+      "label": "LORE",
+      "sub": "DAT mats",
+      "hue": "teal",
+      "run_script": "datbox-studio/lore-box/prod/run-in-deck-host.py",
+      "port": 42929
+    },
+    "shotbox": {
+      "title": "shotBOX",
+      "label": "SHOT",
+      "sub": "broken",
+      "hue": "steel",
+      "coming_soon": true,
+      "broken": true
+    },
+    "promptbox": {
+      "title": "promptBOX",
+      "label": "PROMPT",
+      "sub": "broken",
+      "hue": "indigo",
+      "coming_soon": true,
+      "broken": true
+    },
+    "sopr": {
+      "title": "sopr Documenter",
+      "label": "SOPR",
+      "sub": "fluorescent docs",
+      "hue": "lime",
+      "run_script": "big-box-company/sopr-documenter/prod/run-in-deck-host.py",
+      "port": 42920
+    },
+    "ineffable": {
+      "title": "ineffable-box",
+      "label": "INEFF",
+      "sub": "omens · hymns",
+      "hue": "gold",
+      "run_script": "charlies-toys/ineffable-box/prod/run-in-deck-host.py",
+      "port": 43120
+    },
+    "machina": {
+      "title": "meta-time-machine",
+      "label": "MTM",
+      "sub": "sealed glass",
+      "hue": "cyan",
+      "run_script": "charlies-toys/meta-time-machine/prod/run-in-deck-host.py",
+      "port": 43110
+    },
+    "sdk-import": {
+      "title": "sdk-import-station",
+      "label": "SDK",
+      "sub": "terminal net",
+      "hue": "blue",
+      "run_script": "charlies-toys/sdk-import-station/run-in-deck-host.py",
+      "port": 8765
+    },
+    "injector": {
+      "title": "The Injector",
+      "label": "INJ",
+      "sub": "chester inject",
+      "hue": "orange",
+      "run_script": "chesters-imports/the-injector/prod/run-in-deck-host.py",
+      "port": 43100
+    },
+    "morana-arcana-def6": {
+      "title": "Morana Arcana",
+      "label": "MRA",
+      "sub": "coming soon",
+      "hue": "purple",
+      "coming_soon": true
+    },
+    "my-pi-kitten-detective-chapter-179b": {
+      "title": "Kitten Detective",
+      "label": "KD1",
+      "sub": "coming soon",
+      "hue": "pink",
+      "coming_soon": true
+    },
+    "cat-o-vens": {
+      "title": "cat-o-vens",
+      "label": "VENS",
+      "sub": "coming soon",
+      "hue": "brown",
+      "coming_soon": true
+    },
+    "dos": {
+      "title": "Digital Office Spaces",
+      "label": "DOS",
+      "sub": "office world",
+      "hue": "gray",
+      "coming_soon": true
+    }
+  }
+}

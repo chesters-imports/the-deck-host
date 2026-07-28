@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ROM Launcher · CO.HOST-001-LAUNCH</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Orbitron:wght@500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body class="rl">
+  <header class="rl-chrome" data-deck-chrome>
+    <span class="rl-chip" data-deck-menu>DECK<strong>HOST</strong></span>
+    <span class="rl-drag" data-deck-drag title="ROM Launcher">LAUNCH</span>
+    <div class="rl-win" data-deck-window-controls></div>
+  </header>
+
+  <div class="rl-hero">
+    <h1 class="rl-title">ROM CASES</h1>
+    <button type="button" class="rl-refresh" id="btnRefresh" title="refresh">↻</button>
+  </div>
+
+  <nav class="rl-tabs" role="tablist" aria-label="Case shelves">
+    <button type="button" class="rl-tab is-on" role="tab" id="tabLive" data-tab="live" aria-selected="true">
+      LIVE <span class="rl-tab-n" id="nLive">0</span>
+    </button>
+    <button type="button" class="rl-tab" role="tab" id="tabSoon" data-tab="soon" aria-selected="false">
+      SOON <span class="rl-tab-n" id="nSoon">0</span>
+    </button>
+  </nav>
+
+  <p class="rl-sub" id="sub">loading…</p>
+
+  <main class="rl-grid" id="grid" aria-label="ROM cases"></main>
+
+  <footer class="rl-foot">
+    <span>CO.HOST-001-LAUNCH</span>
+    <span id="status">—</span>
+  </footer>
+
+  <div class="rl-toast" id="toast" hidden></div>
+  <script src="/app.js"></script>
+</body>
+</html>

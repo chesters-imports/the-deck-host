@@ -2,7 +2,18 @@
 
 Window runtime for ROMs (pywebview + caption).
 
-## Run
+## Primary product: ROM Launcher
+
+Start menu for ROMs (cartridge cases). Quiet spawn.
+
+```bat
+cd C:\ALICE_BOX\the-deck-host\rom-launcher\prod
+run-launcher.bat
+```
+
+SKU **CO.HOST-001-LAUNCH** · port **43170** · reads ROM Cat `launcher_show` + `launches.json`.
+
+## Run host only
 
 ```bat
 cd the-deck-host\shell

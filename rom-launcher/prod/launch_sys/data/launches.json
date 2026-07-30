@@ -59,7 +59,8 @@
     },
     "injector": {
       "run_script": "chesters-imports/the-injector/prod/run-in-deck-host.py",
-      "port": 42961
+      "port": 42961,
+      "broken": true
     },
     "morana-arcana-def6": {
       "coming_soon": true

@@ -30,6 +30,10 @@
       "port": 42929,
       "broken": true
     },
+    "sonabox-7d63": {
+      "run_script": "datbox-studio/sona-box/prod/run-in-deck-host.py",
+      "port": 42935
+    },
     "shotbox": {
       "coming_soon": true,
       "broken": true

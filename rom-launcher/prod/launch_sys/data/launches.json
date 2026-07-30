@@ -27,7 +27,8 @@
     },
     "lorebox": {
       "run_script": "datbox-studio/lore-box/prod/run-in-deck-host.py",
-      "port": 42929
+      "port": 42929,
+      "broken": true
     },
     "shotbox": {
       "coming_soon": true,

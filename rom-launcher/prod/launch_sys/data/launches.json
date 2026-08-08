@@ -9,9 +9,21 @@
       "run_script": "dewey-catalog-co/rom-cat/prod/run-in-deck-host.py",
       "port": 43132
     },
-    "concor": {
-      "run_script": "jacks-cross/the-concor/prod/run-in-deck-host.py",
+    "emt-bench": {
+      "run_script": "le-awn-industries/emt-bench/prod/run-in-deck-host.py",
       "port": 43150
+    },
+    "concor": {
+      "run_script": "le-awn-industries/emt-bench/prod/run-in-deck-host.py",
+      "port": 43150
+    },
+    "glass-compost": {
+      "run_script": "le-awn-industries/glass-compost/prod/run-in-deck-host.py",
+      "port": 43182
+    },
+    "nim-yard": {
+      "coming_soon": true,
+      "broken": true
     },
     "pocket-chapbook": {
       "run_script": "my-pocket-things/pocket-chapbook/prod/run-in-deck-host.py",
@@ -21,14 +33,33 @@
       "run_script": "my-pocket-things/pocket-notebook/prod/run-in-deck-host.py",
       "port": 43165
     },
+    "pocket-journal": {
+      "run_script": "my-pocket-things/pocket-journal/prod/run-in-deck-host.py",
+      "port": 43166
+    },
+    "receiver": {
+      "run_script": "the-deck-host/receiver/prod/run-in-deck-host.py",
+      "port": 43200
+    },
+    "sophia-desk": {
+      "run_script": "le-awn-industries/sophia-desk/prod/run-in-deck-host.py",
+      "port": 43167
+    },
+    "pocket-desktop": {
+      "run_script": "le-awn-industries/sophia-desk/prod/run-in-deck-host.py",
+      "port": 43167
+    },
     "kde-notes-chords": {
       "run_script": "charlies-toys/kde-notes-chords/prod/run-in-deck-host.py",
       "port": 43140
     },
     "lorebox": {
       "run_script": "datbox-studio/lore-box/prod/run-in-deck-host.py",
-      "port": 42929,
-      "broken": true
+      "port": 42929
+    },
+    "lorebox-v1-archive": {
+      "run_script": "datbox-studio/lore-box-v1-archive/prod/run-in-deck-host.py",
+      "port": 42928
     },
     "sonabox-7d63": {
       "run_script": "datbox-studio/sona-box/prod/run-in-deck-host.py",
@@ -50,6 +81,10 @@
       "run_script": "big-box-company/great-road-mapper/prod/run-in-deck-host.py",
       "port": 42960
     },
+    "reqrep-414b": {
+      "run_script": "big-box-company/reqrep/prod/run-in-deck-host.py",
+      "port": 42962
+    },
     "ineffable": {
       "run_script": "charlies-toys/ineffable-box/prod/run-in-deck-host.py",
       "port": 43120
@@ -60,7 +95,11 @@
     },
     "sdk-import": {
       "run_script": "charlies-toys/sdk-import-station/run-in-deck-host.py",
-      "port": 8765
+      "port": 43101
+    },
+    "eddies-encoder-eee": {
+      "run_script": "charlies-toys/eddies-encoder/prod/run-in-deck-host.py",
+      "port": 43145
     },
     "injector": {
       "run_script": "chesters-imports/the-injector/prod/run-in-deck-host.py",
@@ -71,13 +110,18 @@
       "coming_soon": true
     },
     "my-pi-kitten-detective-chapter-179b": {
-      "coming_soon": true
+      "run_script": "charlies-toys/kde-kitten-detective/prod/run-in-deck-host.py",
+      "port": 43142
     },
     "cat-o-vens": {
       "coming_soon": true
     },
     "dos": {
       "coming_soon": true
+    },
+    "hermes": {
+      "run_script": "charlies-toys/hermes/prod/run-in-deck-host.py",
+      "port": 43169
     }
   }
 }

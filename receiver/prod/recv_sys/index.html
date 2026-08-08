@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Receiver</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;600&family=IBM+Plex+Mono:wght@400;500;600&family=Special+Elite&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body class="rx">
+  <!-- Integrated Deck Host chrome. data-deck-deep-stay = keep slim logo+spawn rail in deep. -->
+  <header
+    class="rx-rail"
+    data-deck-chrome
+    data-deck-deep-stay
+    data-deck-controls="deep,min,max,close"
+  >
+    <span class="rx-chip" data-deck-menu title="Receiver · menu">REC<strong>EIVER</strong></span>
+    <span class="rx-title" data-deck-drag title="drag to move">felt · loose leaves + notebooks</span>
+    <span class="rx-deep-drag" data-deck-drag title="drag window" aria-hidden="true"></span>
+    <div class="rx-rail-actions">
+      <button type="button" class="rx-btn" id="btnSpawn">Spawn</button>
+    </div>
+    <div class="rx-win" data-deck-window-controls></div>
+  </header>
+
+  <div class="rx-felt" id="felt" aria-label="Felt desk"></div>
+
+  <div id="spawnModal" class="rx-modal" hidden>
+    <div class="rx-modal-card" role="dialog" aria-labelledby="spawnTitle">
+      <header class="rx-modal-h">
+        <span class="rx-chip">REC<strong>EIVER</strong></span>
+        <span id="spawnTitle">What do you want to spawn?</span>
+      </header>
+      <div class="rx-modal-b">
+        <button type="button" class="rx-spawn-choice is-on" id="choiceScrap">
+          <span class="rx-spawn-ico" aria-hidden="true">📄</span>
+          <span>
+            <strong>Loose leaf</strong>
+            <em>taped label · one sheet · can slip into a journal later</em>
+          </span>
+        </button>
+        <button type="button" class="rx-spawn-choice" id="choiceFolder">
+          <span class="rx-spawn-ico" aria-hidden="true">📁</span>
+          <span>
+            <strong>Folder</strong>
+            <em>put leaves away · off the felt · take out to bring back</em>
+          </span>
+        </button>
+        <button type="button" class="rx-spawn-choice" id="choiceShelf">
+          <span class="rx-spawn-ico" aria-hidden="true">📚</span>
+          <span>
+            <strong>Shelf</strong>
+            <em>put notebooks away · same idea as folders</em>
+          </span>
+        </button>
+        <button type="button" class="rx-spawn-choice" id="choiceNotebook">
+          <span class="rx-spawn-ico" aria-hidden="true">📓</span>
+          <span>
+            <strong>Notebook</strong>
+            <em>cloth book · pick color · TOC · multi-page</em>
+          </span>
+        </button>
+        <button type="button" class="rx-spawn-choice" id="choiceCork">
+          <span class="rx-spawn-ico" aria-hidden="true">🪵</span>
+          <span>
+            <strong>Cork mat</strong>
+            <em>decorative board · always behind · put leaves on top</em>
+          </span>
+        </button>
+        <button type="button" class="rx-spawn-choice" id="choiceImport">
+          <span class="rx-spawn-ico" aria-hidden="true">📥</span>
+          <span>
+            <strong>From Pocket Journal / Notebook</strong>
+            <em>copy a real .bok onto the felt and open it</em>
+          </span>
+        </button>
+        <label class="rx-field" id="spawnTitleField">
+          <span>title</span>
+          <input type="text" id="spawnTitleIn" value="untitled leaf" autocomplete="off" />
+        </label>
+        <label class="rx-field" id="spawnAuthorField">
+          <span>author</span>
+          <input type="text" id="spawnAuthorIn" value="unknown" autocomplete="off" placeholder="unknown" />
+        </label>
+        <label class="rx-field" id="spawnClothField" hidden>
+          <span>cloth</span>
+          <select id="spawnClothIn" class="rx-select">
+            <option value="oxblood">oxblood</option>
+            <option value="forest">forest</option>
+            <option value="navy">navy</option>
+            <option value="sand">sand</option>
+          </select>
+        </label>
+        <label class="rx-field" id="spawnImportField" hidden>
+          <span>source book</span>
+          <select id="spawnImportSel" class="rx-select"></select>
+        </label>
+      </div>
+      <footer class="rx-modal-f">
+        <button type="button" class="rx-btn ghost" id="spawnCancel">Cancel</button>
+        <button type="button" class="rx-btn cta" id="spawnGo">Spawn leaf</button>
+      </footer>
+    </div>
+  </div>
+
+  <div id="toast" class="rx-toast" hidden></div>
+
+  <!-- shelve notebook -->
+  <div id="shelveModal" class="rx-modal" hidden>
+    <div class="rx-modal-card file-modal-card" role="dialog" aria-labelledby="shelveModalTitle">
+      <header class="rx-modal-h">
+        <span class="rx-chip">SHELVE</span>
+        <span id="shelveModalTitle">Put on shelf…</span>
+      </header>
+      <div class="rx-modal-b">
+        <p class="file-modal-leaf" id="shelveModalBook"></p>
+        <div class="file-modal-list" id="shelveModalList"></div>
+        <label class="rx-field">
+          <span>or new shelf</span>
+          <input type="text" id="shelveModalNew" placeholder="shelf name" autocomplete="off" />
+        </label>
+      </div>
+      <footer class="rx-modal-f">
+        <button type="button" class="rx-btn ghost" id="shelveModalCancel">Cancel</button>
+        <button type="button" class="rx-btn cta" id="shelveModalNewGo">Make shelf &amp; shelve</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- file leaf into folder (felt chrome, not OS prompt) -->
+  <div id="fileModal" class="rx-modal" hidden>
+    <div class="rx-modal-card file-modal-card" role="dialog" aria-labelledby="fileModalTitle">
+      <header class="rx-modal-h">
+        <span class="rx-chip">FILE</span>
+        <span id="fileModalTitle">Put away into…</span>
+      </header>
+      <div class="rx-modal-b">
+        <p class="file-modal-leaf" id="fileModalLeaf"></p>
+        <div class="file-modal-list" id="fileModalList"></div>
+        <label class="rx-field">
+          <span>or new folder</span>
+          <input type="text" id="fileModalNew" placeholder="folder name" autocomplete="off" />
+        </label>
+      </div>
+      <footer class="rx-modal-f">
+        <button type="button" class="rx-btn ghost" id="fileModalCancel">Cancel</button>
+        <button type="button" class="rx-btn cta" id="fileModalNewGo">Make folder &amp; file</button>
+      </footer>
+    </div>
+  </div>
+
+  <script src="live_md.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

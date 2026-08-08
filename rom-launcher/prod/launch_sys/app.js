@@ -65,7 +65,7 @@
       sub.textContent =
         live.length === 0
           ? "no live cases · toggle launcher_show in ROM Cat"
-          : "click a case · warm = already running";
+          : "click a case · green pins = already warm (running)";
       status.textContent = "live shelf";
     } else {
       sub.textContent =
@@ -85,13 +85,25 @@
 
     grid.innerHTML = tiles
       .map((t) => {
-        const hue = esc(t.hue || "steel");
+        // Identity from ROM Cat. Shell: classicboi | julie (+ julie_tint).
+        const hue = esc(t.hue || "classic");
+        const shell =
+          t.case_shell === "julie" ? "julie" : "classicboi";
+        const rawTint = String(t.julie_tint || "red").trim();
+        const isHex = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(
+          rawTint
+        );
+        const tintClass = isHex
+          ? "tint-custom"
+          : "tint-" + rawTint.replace(/[^a-z0-9_-]/gi, "") || "red";
         const broken = !!t.broken || t.status === "broken";
         const soonFlag = !broken && (t.coming_soon || !t.launchable);
         const warm = t.warm;
         const disabled = broken || soonFlag || !t.launchable;
         const cls = [
           "rl-case",
+          `shell-${shell}`,
+          shell === "julie" ? tintClass : "",
           `hue-${hue}`,
           soonFlag ? "is-soon" : "",
           broken ? "is-broken" : "",
@@ -99,30 +111,62 @@
         ]
           .filter(Boolean)
           .join(" ");
-        const st = broken
-          ? "broken"
-          : soonFlag
-            ? "coming soon"
-            : warm
-              ? "warm"
-              : "ready";
+        // Face text only for exceptional states — never stamp "ready" on every cart.
+        // Warm = glowing edge contacts (pins), not a word under the reader.
+        const st = broken ? "broken" : soonFlag ? "soon" : "";
+        // Short plate fragment from chip (dress-up identity), not generic "ROM"
+        const plate = t.label || "ROM";
+        const chip = t.chip_code || "";
+        const skuShort = chip
+          ? chip.length > 18
+            ? chip.slice(0, 16) + "…"
+            : chip
+          : "";
+        const titleBits = [
+          t.name,
+          chip,
+          t.producer,
+          shell,
+          warm ? "warm" : "",
+          t.description,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        // Shared face: shell · black lip · badge fragment · plate · sku · pins
         return (
           `<button type="button" class="${cls}" data-id="${esc(t.id)}" ` +
-          `${disabled ? "disabled" : ""} title="${esc(t.description || t.name)}">` +
+          `${disabled ? "disabled" : ""} title="${esc(titleBits)}" ` +
+          `${isHex ? `data-julie-hex="${esc(rawTint)}"` : ""}>` +
           `<span class="rl-case-shell" aria-hidden="true"></span>` +
           `<span class="rl-case-notch" aria-hidden="true"></span>` +
-          `<span class="rl-case-ridge" aria-hidden="true"></span>` +
-          `<span class="rl-case-badge">${esc(t.label || "ROM")}</span>` +
-          `<span class="rl-case-label">` +
-          `<span class="rl-case-label-main">${esc(t.label || t.name)}</span>` +
-          `<span class="rl-case-label-sub">${esc(t.sub || "")}</span>` +
+          `<span class="rl-case-badge" title="short plate">${esc(plate)}</span>` +
+          `<span class="rl-case-label" data-plate>` +
+          `<span class="rl-case-label-main">${esc(t.name || plate)}</span>` +
           `</span>` +
-          `<span class="rl-case-pins" aria-hidden="true"></span>` +
-          `<span class="rl-case-status">${esc(st)}</span>` +
+          `<span class="rl-case-sku">${esc(skuShort)}</span>` +
+          `<span class="rl-case-pins" aria-hidden="true" title="edge contacts"></span>` +
+          (st
+            ? `<span class="rl-case-status">${esc(st)}</span>`
+            : "") +
           `</button>`
         );
       })
       .join("");
+
+    // Apply Cat plate_css + custom julie hex onto cases
+    grid.querySelectorAll(".rl-case").forEach((btn) => {
+      const id = btn.getAttribute("data-id");
+      const t = tiles.find((x) => x.id === id);
+      const plateEl = btn.querySelector("[data-plate]");
+      if (plateEl && t && t.plate_css) {
+        plateEl.style.cssText = t.plate_css;
+        plateEl.classList.add("has-custom-plate");
+      }
+      const hex = btn.getAttribute("data-julie-hex");
+      if (hex) {
+        btn.style.setProperty("--julie", hex);
+      }
+    });
 
     grid.querySelectorAll(".rl-case:not(:disabled)").forEach((btn) => {
       btn.addEventListener("click", () => launch(btn.getAttribute("data-id")));
@@ -166,9 +210,37 @@
     }
   }
 
+  async function unstick() {
+    status.textContent = "unstick…";
+    try {
+      const r = await fetch("/api/unstick", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      const j = await r.json();
+      if (!j.ok) {
+        toast(j.error || "unstick failed");
+        status.textContent = "unstick fail";
+        return;
+      }
+      toast(j.message || "unstuck");
+      status.textContent =
+        j.count > 0
+          ? `killed ${j.count}`
+          : "all quiet";
+      setTimeout(refresh, 600);
+    } catch (e) {
+      console.error(e);
+      toast("unstick error");
+      status.textContent = "unstick fail";
+    }
+  }
+
   $("tabLive").addEventListener("click", () => setTab("live"));
   $("tabSoon").addEventListener("click", () => setTab("soon"));
   $("btnRefresh").addEventListener("click", refresh);
+  if ($("btnUnstick")) $("btnUnstick").addEventListener("click", unstick);
   refresh();
   setInterval(refresh, 8000);
 })();

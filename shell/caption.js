@@ -202,10 +202,21 @@
     var bar = captionBarEl();
     var menu = document.getElementById("deck-host-menu");
     var integrated = root.classList.contains("deck-host-integrated");
+    // ROMs may keep their own chrome in deep (logo + spawn rail) via data-deck-deep-stay
+    var stay =
+      !!(bar && bar.hasAttribute("data-deck-deep-stay")) ||
+      !!document.querySelector("[data-deck-chrome][data-deck-deep-stay]");
     if (on) {
       root.classList.add("deck-host-deep");
       if (document.body) document.body.classList.add("deck-host-deep");
-      if (bar) bar.hidden = true;
+      if (bar) {
+        if (stay) {
+          bar.hidden = false;
+          bar.classList.add("is-deep-rail");
+        } else {
+          bar.hidden = true;
+        }
+      }
       if (menu) menu.hidden = true;
       setCaptionHeightVar(0);
       armSurfaceDrags(true);
@@ -216,7 +227,10 @@
     } else {
       root.classList.remove("deck-host-deep");
       if (document.body) document.body.classList.remove("deck-host-deep");
-      if (bar) bar.hidden = false;
+      if (bar) {
+        bar.hidden = false;
+        bar.classList.remove("is-deep-rail");
+      }
       setCaptionHeightVar(integrated ? 0 : H);
       armSurfaceDrags(false);
       try {
@@ -805,7 +819,11 @@
       "html.deck-host-integrated [data-deck-window-controls] .dh-eye-shut{display:none}" +
       "html.deck-host-integrated [data-deck-window-controls] .deep-btn:hover .dh-eye-open{display:none}" +
       "html.deck-host-integrated [data-deck-window-controls] .deep-btn:hover .dh-eye-shut{display:block}" +
-      "html.deck-host-integrated.deck-host-deep [data-deck-chrome]{display:none!important}" +
+      /* Default: hide ROM chrome in deep. Stay-rail ROMs (Receiver) keep a slim logo+spawn bar. */
+      "html.deck-host-integrated.deck-host-deep [data-deck-chrome]:not([data-deck-deep-stay]){" +
+      "display:none!important}" +
+      "html.deck-host-integrated.deck-host-deep [data-deck-chrome][data-deck-deep-stay]{" +
+      "display:flex!important}" +
       /* Deep mode: lock viewport so hint never expands body scroll under status */
       "html.deck-host-integrated.deck-host-deep," +
       "html.deck-host-integrated.deck-host-deep body{" +

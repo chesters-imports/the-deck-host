@@ -797,6 +797,16 @@ def main(argv: list[str] | None = None) -> None:
         _MAG_SMALL = (args.width, _MAG_SMALL[1])
     elif args.height:
         _MAG_SMALL = (_MAG_SMALL[0], args.height)
+    # Custom standard size: height-first expand (not a jump to 1600×1200 landscape).
+    # Optional explicit expanded via DECK_HOST_EXPANDED_WIDTH / _HEIGHT.
+    ew = _env_int("DECK_HOST_EXPANDED_WIDTH")
+    eh = _env_int("DECK_HOST_EXPANDED_HEIGHT")
+    if ew and eh:
+        _MAG_LARGE = (ew, eh)
+    elif args.width and args.height:
+        w, h = _MAG_SMALL
+        _MAG_LARGE = (min(w + 48, max(w, 780)), min(h + 240, max(h + 160, 980)))
+        _MAG_COMPACT = (max(_MIN_SIZE[0], w - 40), max(_MIN_SIZE[1], h - 60))
     if args.min_width or args.min_height:
         _MIN_SIZE = (
             args.min_width or _MIN_SIZE[0],
@@ -855,6 +865,14 @@ def main(argv: list[str] | None = None) -> None:
 
     api = DeckHostApi(start_mode=_START_WINDOW_MODE)
     start_w, start_h = size_for_mode(_START_WINDOW_MODE)
+    want_max = _START_WINDOW_MODE == "maximized" and _PROFILE != "companion"
+    # Full-screen take-over (Receiver-style). Opt-in so normal ROMs stay windowed.
+    want_fs = os.environ.get("DECK_HOST_FULLSCREEN", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
     win_kw: dict = {
         "title": TITLE_ROOT,
         "url": HOME,
@@ -868,16 +886,28 @@ def main(argv: list[str] | None = None) -> None:
         "resizable": True,
         "shadow": True,
         "js_api": api,
-        "maximized": _START_WINDOW_MODE == "maximized" and _PROFILE != "companion",
+        "maximized": want_max and not want_fs,
     }
+    if want_max or want_fs:
+        # Avoid random multi-monitor / off-origin spawn before maximize sticks
+        win_kw["x"] = 0
+        win_kw["y"] = 0
+    if want_fs:
+        win_kw["fullscreen"] = True
     if _ON_TOP:
         win_kw["on_top"] = True
-    # older pywebview may not accept maximized=
+    # older pywebview may not accept maximized= / fullscreen=
     try:
         window = webview.create_window(**win_kw)
     except TypeError:
         win_kw.pop("maximized", None)
-        window = webview.create_window(**win_kw)
+        win_kw.pop("fullscreen", None)
+        try:
+            window = webview.create_window(**win_kw)
+        except TypeError:
+            win_kw.pop("x", None)
+            win_kw.pop("y", None)
+            window = webview.create_window(**win_kw)
     api.bind(window)
     if _START_WINDOW_MODE == "maximized":
         api._maximized = True

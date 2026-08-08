@@ -27,6 +27,10 @@ ROOT = Path(__file__).resolve().parent
 # launch_sys → prod → rom-launcher → the-deck-host → ALICE_BOX
 ALICE = ROOT.parents[3]
 CATALOG = ALICE / "dewey-catalog-co" / "rom-cat" / "prod" / "romcat_sys" / "data" / "catalog.json"
+# Single source of truth for cart plastic — same file ROM Cat serves
+CART_FACE_CSS = (
+    ALICE / "dewey-catalog-co" / "rom-cat" / "prod" / "romcat_sys" / "rom-cart-face.css"
+)
 LAUNCHES = ROOT / "data" / "launches.json"
 HOST = "127.0.0.1"
 PORT = 43170
@@ -34,7 +38,9 @@ PORT = 43170
 # Known ROM ports not yet in launches.json (still get unstuck)
 EXTRA_UNSTICK_PORTS = (
     42960,  # Great Road Mapper
+    42962,  # ReqRep
     43111,  # meta-time-machine (sometimes)
+    43145,  # Eddy's Encoder
 )
 
 
@@ -130,7 +136,34 @@ def merge_tiles() -> list[dict[str, Any]]:
             sub = status if status not in ("desk", "shipped") else "soon"
         else:
             sub = prod.get("chip_code") or "ready"
-        # classic cart shell by default — rainbow hues were recipe cosplay
+        # classicboi / julie shells from ROM Cat (fallback classicboi)
+        case_shell = str(rom.get("case_shell") or "classicboi").strip().lower()
+        if case_shell not in ("classicboi", "julie"):
+            case_shell = "classicboi"
+        julie_tint = str(rom.get("julie_tint") or "red").strip()
+        # preset id or #hex (intense custom plastic, e.g. Detective K crimson)
+        _presets = {
+            "red",
+            "crimson",
+            "pink",
+            "purple",
+            "mint",
+            "clear",
+            "blue",
+            "amber",
+            "smoke",
+        }
+        low = julie_tint.lower()
+        if low in _presets:
+            julie_tint = low
+        elif not (
+            low.startswith("#")
+            and len(low) in (4, 7, 9)
+            and all(c in "0123456789abcdef#" for c in low)
+        ):
+            julie_tint = "red"
+        else:
+            julie_tint = low
         hue = "classic"
         if broken:
             hue = "broken"
@@ -149,6 +182,8 @@ def merge_tiles() -> list[dict[str, Any]]:
                 "label": plate_from_chip(chip, rid),
                 "sub": sub,
                 "hue": hue,
+                "case_shell": case_shell,
+                "julie_tint": julie_tint,
                 "plate_css": plate_css,
                 "coming_soon": coming and not broken,
                 "broken": broken,
@@ -238,7 +273,13 @@ def _python_server_pids_under_alice() -> list[dict[str, Any]]:
             cl_l = cl.lower().replace("/", "\\")
             if not pid or pid == me:
                 continue
-            if "server.py" not in cl_l:
+            # ROM servers: python server.py / serve_rom.py / php -S under ALICE_BOX
+            is_rom = (
+                "server.py" in cl_l
+                or "serve_rom.py" in cl_l
+                or ("php" in cl_l and "-s" in cl_l)
+            )
+            if not is_rom:
                 continue
             # never kill the launcher itself
             if "rom-launcher" in cl_l or "launch_sys" in cl_l or launch_marker in cl_l:
@@ -432,6 +473,19 @@ class Handler(SimpleHTTPRequestHandler):
                 else:
                     t["warm"] = False
             self._json(200, {"ok": True, "tiles": tiles})
+            return
+        # Shared cart face CSS (ROM Cat is editor of truth; Launcher only hosts a copy path)
+        if path == "/rom-cart-face.css":
+            if not CART_FACE_CSS.is_file():
+                self.send_error(404, "rom-cart-face.css missing under rom-cat")
+                return
+            raw = CART_FACE_CSS.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/css; charset=utf-8")
+            self.send_header("Content-Length", str(len(raw)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(raw)
             return
         return super().do_GET()
 

@@ -8,9 +8,20 @@
   --glow: #6a8cff;
   --mono: "IBM Plex Mono", ui-monospace, monospace;
   --display: "Orbitron", var(--mono);
-  /* classic cart footprint ~ scaled down physical toy */
-  --cart-w: 5.5rem;
-  --cart-h: 6.1rem;
+  /*
+   * Launcher pack density — do NOT shrink to Cat shelf size.
+   * Anatomy inside the cart is %, so this only sets footprint.
+   */
+  --cart-w: 5.65rem;
+  --cart-h: 6.45rem;
+}
+
+/* force launcher footprint even if face file sets defaults */
+body.rl .rl-case {
+  --cart-w: 5.65rem;
+  --cart-h: 6.45rem;
+  width: var(--cart-w);
+  height: var(--cart-h);
 }
 
 *,
@@ -111,6 +122,12 @@ body.rl {
   gap: 0.35rem;
   padding: 0.35rem 0.45rem 0.2rem;
 }
+.rl-hero-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
 
 .rl-title {
   margin: 0;
@@ -120,6 +137,17 @@ body.rl {
   font-weight: 700;
   letter-spacing: 0.12em;
   color: var(--glow);
+  cursor: grab;
+  user-select: none;
+  padding: 0.2rem 0.15rem;
+}
+.rl-title:active {
+  cursor: grabbing;
+}
+html.deck-host-deep .rl-title,
+body.deck-host-deep .rl-title {
+  text-shadow: 0 0 10px rgba(106, 140, 255, 0.4);
+  letter-spacing: 0.14em;
 }
 
 .rl-tabs {
@@ -183,414 +211,96 @@ body.rl {
   color: var(--ink);
 }
 
+.rl-unstick {
+  border: 1px solid var(--line);
+  background: #12151e;
+  color: var(--dim);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.48rem;
+  letter-spacing: 0.08em;
+  height: 1.55rem;
+  padding: 0 0.4rem;
+  cursor: pointer;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.rl-unstick:hover {
+  border-color: #c47a5a;
+  color: #e8c4b0;
+}
+
 .rl-grid {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
   padding: 0.4rem 0.45rem 0.85rem;
-  /* always tile — 2-up on rail, more when window is wider */
+  /* Flow cartridges as dense as the window allows — not stuck at 2-up with giant gaps */
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.55rem 0.4rem;
+  grid-template-columns: repeat(auto-fill, minmax(var(--cart-w), 1fr));
+  gap: 0.45rem 0.35rem;
   align-content: start;
   justify-items: center;
   touch-action: pan-y;
 }
 
-@media (min-width: 360px) {
-  .rl-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
 @media (min-width: 520px) {
   .rl-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    padding: 0.5rem 0.65rem 1rem;
-    gap: 0.65rem 0.55rem;
+    padding: 0.5rem 0.55rem 1rem;
+    gap: 0.5rem 0.4rem;
   }
 }
 
-@media (min-width: 720px) {
-  .rl-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
+/* Cartridge plastic: rom-cart-face.css (shared with ROM Cat — do not fork here) */
 
-@media (min-width: 960px) {
-  .rl-grid {
-    grid-template-columns: repeat(auto-fill, minmax(5.5rem, 1fr));
-  }
-}
-
-/* ── teeny cartridge (Game Boy-ish) ─────────────────────── */
-.rl-case {
-  position: relative;
-  width: var(--cart-w);
-  height: var(--cart-h);
-  max-width: 100%;
-  border: none;
-  padding: 0;
-  cursor: pointer;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  filter: drop-shadow(1px 3px 4px rgba(0, 0, 0, 0.55));
-  transition: transform 0.12s ease, filter 0.12s ease;
-}
-
-.rl-case:hover:not(:disabled) {
-  transform: translateY(-3px) rotate(-1deg);
-  filter: drop-shadow(2px 6px 8px rgba(0, 0, 0, 0.6));
-}
-
-.rl-case:active:not(:disabled) {
-  transform: translateY(0) scale(0.98);
-}
-
-.rl-case:disabled {
-  cursor: default;
-}
-
-.rl-case-shell {
-  position: absolute;
-  inset: 0;
-  /* slight top bevel like molded plastic */
-  border-radius: 3px 3px 5px 5px;
-  border: 1px solid rgba(0, 0, 0, 0.55);
-  background: linear-gradient(
-    165deg,
-    var(--shell-hi, #5a6a7a) 0%,
-    var(--shell-mid, #3a4a5a) 42%,
-    var(--shell-lo, #1a2430) 100%
-  );
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.28),
-    inset 0 -6px 10px rgba(0, 0, 0, 0.35),
-    inset 1px 0 0 rgba(255, 255, 255, 0.08),
-    inset -1px 0 0 rgba(0, 0, 0, 0.2);
-}
-
-/* GB-style top lip / label window frame */
-.rl-case-notch {
-  position: absolute;
-  top: 0;
-  left: 18%;
-  right: 18%;
-  height: 0.35rem;
-  z-index: 1;
-  background: linear-gradient(
-    180deg,
-    rgba(0, 0, 0, 0.35),
-    rgba(0, 0, 0, 0.15)
-  );
-  border-radius: 0 0 2px 2px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-}
-
-.rl-case-ridge {
-  position: absolute;
-  left: 10%;
-  right: 10%;
-  top: 52%;
-  height: 1px;
-  z-index: 1;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(0, 0, 0, 0.35),
-    transparent
-  );
-  opacity: 0.7;
-  pointer-events: none;
-}
-
-.rl-case-badge {
-  position: absolute;
-  top: 0.42rem;
-  left: 0.28rem;
-  z-index: 2;
-  font-family: var(--mono);
-  font-size: 0.38rem;
-  letter-spacing: 0.06em;
-  padding: 0.06rem 0.18rem;
-  border-radius: 1px;
-  background: rgba(0, 0, 0, 0.5);
-  color: var(--badge-ink, #cfe);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  max-width: 42%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* sticker / LCD plate */
-.rl-case-label {
-  position: absolute;
-  left: 9%;
-  right: 9%;
-  top: 18%;
-  height: 38%;
-  z-index: 2;
-  border-radius: 2px;
-  background: var(--label-bg, #0a1018);
-  box-shadow:
-    inset 0 0 8px rgba(0, 0, 0, 0.9),
-    inset 0 0 1px rgba(120, 200, 255, 0.12),
-    0 0 0 1px rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(0, 0, 0, 0.55);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 0.2rem 0.15rem;
-  text-align: center;
-}
-
-.rl-case-label-main {
-  font-family: var(--display);
-  font-size: 0.52rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  color: var(--label-ink, #8ef);
-  line-height: 1.1;
-  word-break: break-word;
-  max-width: 100%;
-}
-
-.rl-case-label-sub {
-  margin-top: 0.15rem;
-  font-size: 0.36rem;
-  letter-spacing: 0.02em;
-  color: var(--label-dim, #6a90a8);
-  line-height: 1.15;
-  max-height: 2.2em;
-  overflow: hidden;
-}
-
-/* contact pins at bottom edge — tiny physical cue */
-.rl-case-pins {
-  position: absolute;
-  left: 14%;
-  right: 14%;
-  bottom: 0.55rem;
-  height: 0.38rem;
-  z-index: 2;
-  border-radius: 1px;
-  background: repeating-linear-gradient(
-    90deg,
-    #c8c0a8 0 2px,
-    #3a3830 2px 3px
-  );
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.25),
-    0 1px 0 rgba(0, 0, 0, 0.4);
-  opacity: 0.9;
-}
-
-.rl-case-status {
-  position: absolute;
-  bottom: 0.12rem;
-  left: 0;
-  right: 0;
-  z-index: 2;
-  text-align: center;
-  font-size: 0.36rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.5);
-}
-
-.rl-case.is-warm .rl-case-status {
-  color: #7dffb0;
-  text-shadow: 0 0 6px rgba(80, 255, 160, 0.55);
-}
-
-.rl-case.is-warm .rl-case-shell {
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.28),
-    inset 0 -6px 10px rgba(0, 0, 0, 0.35),
-    0 0 0 1px rgba(80, 220, 140, 0.35),
-    0 0 12px rgba(60, 200, 120, 0.2);
-}
-
+/* launcher-only states layered on shared face */
 .rl-case.is-soon {
   opacity: 0.78;
 }
-
 .rl-case.is-soon .rl-case-label {
   filter: grayscale(0.4);
   opacity: 0.7;
 }
-
 .rl-case.is-soon .rl-case-status {
   color: #c8a060;
 }
-
 .rl-case.is-broken {
   opacity: 0.7;
 }
-
 .rl-case.is-broken .rl-case-label {
   filter: grayscale(0.65);
   opacity: 0.55;
 }
-
 .rl-case.is-broken .rl-case-status {
   color: #e07070;
   letter-spacing: 0.12em;
 }
-
 .rl-case.is-broken .rl-case-pins {
   opacity: 0.35;
   filter: grayscale(1);
 }
 
-/* hues */
-.hue-amber {
-  --shell-hi: #8a7048;
-  --shell-mid: #5a4830;
-  --shell-lo: #2a2010;
-  --label-bg: #1a1408;
-  --label-ink: #f0c060;
-  --label-dim: #a08040;
-  --badge-ink: #ffe0a0;
-}
-.hue-green {
-  --shell-hi: #3a7a58;
-  --shell-mid: #245038;
-  --shell-lo: #102818;
-  --label-bg: #0a1a10;
-  --label-ink: #80f0a8;
-  --label-dim: #408060;
-  --badge-ink: #c0ffd0;
-}
-.hue-rose {
-  --shell-hi: #8a4060;
-  --shell-mid: #582838;
-  --shell-lo: #281018;
-  --label-bg: #1a0a12;
-  --label-ink: #ff90b8;
-  --label-dim: #a05070;
-  --badge-ink: #ffc0d8;
-}
-.hue-violet {
-  --shell-hi: #6050a0;
-  --shell-mid: #383068;
-  --shell-lo: #181430;
-  --label-bg: #100c20;
-  --label-ink: #c0a0ff;
-  --label-dim: #7060a0;
-  --badge-ink: #e0d0ff;
-}
-.hue-teal {
-  --shell-hi: #308080;
-  --shell-mid: #205050;
-  --shell-lo: #102828;
-  --label-bg: #081818;
-  --label-ink: #60e0d0;
-  --label-dim: #308880;
-  --badge-ink: #a0fff0;
-}
-.hue-steel {
-  --shell-hi: #607088;
-  --shell-mid: #384858;
-  --shell-lo: #182028;
-  --label-bg: #0c1018;
-  --label-ink: #a0c0e0;
-  --label-dim: #6080a0;
-  --badge-ink: #c0d8f0;
-}
-.hue-indigo {
-  --shell-hi: #4050a0;
-  --shell-mid: #283068;
-  --shell-lo: #101438;
-  --label-bg: #080c20;
-  --label-ink: #90a8ff;
-  --label-dim: #5060b0;
-  --badge-ink: #c0d0ff;
-}
-.hue-lime {
-  --shell-hi: #608040;
-  --shell-mid: #384828;
-  --shell-lo: #182010;
-  --label-bg: #0c1408;
-  --label-ink: #c0f060;
-  --label-dim: #709030;
-  --badge-ink: #e0ffb0;
-}
-.hue-gold {
-  --shell-hi: #a08840;
-  --shell-mid: #685828;
-  --shell-lo: #302810;
-  --label-bg: #181408;
-  --label-ink: #f0d060;
-  --label-dim: #a08830;
-  --badge-ink: #fff0b0;
-}
-.hue-cyan {
-  --shell-hi: #3088a0;
-  --shell-mid: #185068;
-  --shell-lo: #082838;
-  --label-bg: #08141c;
-  --label-ink: #60e0ff;
-  --label-dim: #3088a8;
-  --badge-ink: #b0f0ff;
-}
-.hue-blue {
-  --shell-hi: #3060b0;
-  --shell-mid: #183870;
-  --shell-lo: #081838;
-  --label-bg: #080c20;
-  --label-ink: #70b0ff;
-  --label-dim: #4070b0;
-  --badge-ink: #b0d8ff;
-}
-.hue-orange {
-  --shell-hi: #b06830;
-  --shell-mid: #704018;
-  --shell-lo: #381808;
-  --label-bg: #1c1008;
-  --label-ink: #ffb060;
-  --label-dim: #a06030;
-  --badge-ink: #ffd0a0;
-}
-.hue-purple {
-  --shell-hi: #7030a0;
-  --shell-mid: #481868;
-  --shell-lo: #200830;
-  --label-bg: #140820;
-  --label-ink: #d080ff;
-  --label-dim: #8040b0;
-  --badge-ink: #f0c0ff;
-}
-.hue-pink {
-  --shell-hi: #b05080;
-  --shell-mid: #702850;
-  --shell-lo: #381028;
-  --label-bg: #1c0814;
-  --label-ink: #ff90c8;
-  --label-dim: #a04070;
-  --badge-ink: #ffd0e8;
-}
-.hue-brown {
-  --shell-hi: #705040;
-  --shell-mid: #483028;
-  --shell-lo: #201810;
-  --label-bg: #14100c;
-  --label-ink: #d0a080;
-  --label-dim: #806050;
-  --badge-ink: #f0d0b0;
-}
+/* hue-* kept as no-ops for old classnames on tiles — shell paint is shared CSS */
+.hue-classic,
+.hue-steel,
+.hue-soon,
+.hue-broken,
+.hue-amber,
+.hue-green,
+.hue-rose,
+.hue-violet,
+.hue-teal,
+.hue-indigo,
+.hue-lime,
+.hue-gold,
+.hue-cyan,
+.hue-blue,
+.hue-orange,
+.hue-purple,
+.hue-pink,
+.hue-brown,
 .hue-gray {
-  --shell-hi: #686870;
-  --shell-mid: #404048;
-  --shell-lo: #181820;
-  --label-bg: #101014;
-  --label-ink: #c0c0c8;
-  --label-dim: #808088;
-  --badge-ink: #e0e0e8;
+  /* identity comes from Cat case_shell / julie_tint / plate_css */
 }
 
 .rl-foot {

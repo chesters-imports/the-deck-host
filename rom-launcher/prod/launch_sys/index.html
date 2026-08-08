@@ -6,7 +6,9 @@
   <title>ROM Launcher · CO.HOST-001-LAUNCH</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Orbitron:wght@500;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Orbitron:wght@500;700&family=Special+Elite&display=swap" rel="stylesheet" />
+  <!-- cart plastic: ONE file with ROM Cat (not a forked copy in app.css) -->
+  <link rel="stylesheet" href="/rom-cart-face.css" />
   <link rel="stylesheet" href="/app.css" />
 </head>
 <body class="rl">
@@ -17,8 +19,12 @@
   </header>
 
   <div class="rl-hero">
-    <h1 class="rl-title">ROM CASES</h1>
-    <button type="button" class="rl-refresh" id="btnRefresh" title="refresh">↻</button>
+    <!-- deep mode: caption hidden — title is the drag handle (REQ-007-CHG01) -->
+    <h1 class="rl-title" data-deck-drag title="drag window · deep mode handle">ROM CASES</h1>
+    <div class="rl-hero-actions">
+      <button type="button" class="rl-unstick" id="btnUnstick" title="Kill stuck ROM server.py / free ports (keeps this launcher)">UNSTICK</button>
+      <button type="button" class="rl-refresh" id="btnRefresh" title="refresh">↻</button>
+    </div>
   </div>
 
   <nav class="rl-tabs" role="tablist" aria-label="Case shelves">

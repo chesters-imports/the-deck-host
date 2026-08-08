@@ -24,3 +24,8 @@ safe_box/
 paper/
 **/paper/
 
+
+# runtime logs
+*.log
+desk-server.log
+**/desk-server.log

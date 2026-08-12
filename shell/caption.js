@@ -822,8 +822,8 @@
       /* Default: hide ROM chrome in deep. Stay-rail ROMs (Receiver) keep a slim logo+spawn bar. */
       "html.deck-host-integrated.deck-host-deep [data-deck-chrome]:not([data-deck-deep-stay]){" +
       "display:none!important}" +
-      "html.deck-host-integrated.deck-host-deep [data-deck-chrome][data-deck-deep-stay]{" +
-      "display:flex!important}" +
+      /* deep-stay: do NOT force display:flex — ROMs may use grid (Sophia rail).
+         Hide rule only matches chrome without data-deck-deep-stay. */
       /* Deep mode: lock viewport so hint never expands body scroll under status */
       "html.deck-host-integrated.deck-host-deep," +
       "html.deck-host-integrated.deck-host-deep body{" +

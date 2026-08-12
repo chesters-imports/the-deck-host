@@ -2,7 +2,7 @@
   "schema": "rom-launcher.v1",
   "sku": "CO.HOST-001-LAUNCH",
   "title": "ROM Launcher",
-  "whisper": "start menu for the deck · cases on the table · identity from ROM Cat",
+  "whisper": "start menu for the deck \u00b7 cases on the table \u00b7 identity from ROM Cat",
   "notes": "Recipes are launch mechanics only (run_script, port, broken, coming_soon). Names, chip codes, descriptions live in dewey-catalog-co/rom-cat catalog.json.",
   "recipes": {
     "romcat": {
@@ -42,12 +42,20 @@
       "port": 43200
     },
     "sophia-desk": {
-      "run_script": "le-awn-industries/sophia-desk/prod/run-in-deck-host.py",
+      "run_script": "le-awn-industries/el-desks-for-her/sophia-desk/prod/run-in-deck-host.py",
       "port": 43167
     },
     "pocket-desktop": {
-      "run_script": "le-awn-industries/sophia-desk/prod/run-in-deck-host.py",
+      "run_script": "le-awn-industries/el-desks-for-her/sophia-desk/prod/run-in-deck-host.py",
       "port": 43167
+    },
+    "cassandra-desk": {
+      "run_script": "le-awn-industries/el-desks-for-her/cassandra-desk/prod/run-in-deck-host.py",
+      "port": 43168
+    },
+    "ava-desk": {
+      "run_script": "le-awn-industries/el-desks-for-her/ava-desk/prod/run-in-deck-host.py",
+      "port": 43171
     },
     "kde-notes-chords": {
       "run_script": "charlies-toys/kde-notes-chords/prod/run-in-deck-host.py",

@@ -29,6 +29,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
@@ -38,9 +39,52 @@ except ImportError:
     print("pip install pywebview")
     sys.exit(1)
 
-HERE = Path(__file__).resolve().parent
-LAUNCHER = (HERE / "launcher.html").as_uri()
-CAPTION_JS = HERE / "caption.js"
+def _frozen() -> bool:
+    return bool(getattr(sys, "frozen", False))
+
+
+def runtime_dir() -> Path:
+    """Folder next to the running exe (or this script). Ship files live here."""
+    if _frozen():
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+def bundle_dir() -> Path:
+    """PyInstaller extract dir, or this script's folder."""
+    if _frozen():
+        return Path(getattr(sys, "_MEIPASS", runtime_dir()))
+    return Path(__file__).resolve().parent
+
+
+HERE = runtime_dir()
+_BUNDLE = bundle_dir()
+LAUNCHER = (_BUNDLE / "launcher.html").as_uri()
+CAPTION_JS = _BUNDLE / "caption.js"
+
+
+def _attach_stdio() -> None:
+    """Windowed PyInstaller: stdout is None, or a charmap handle that dies on arrows."""
+    log_path = runtime_dir() / "deck-host.log"
+    try:
+        fh = open(log_path, "a", encoding="utf-8", errors="replace")
+    except OSError:
+        fh = None
+    if fh is not None:
+        fh.write("\n--- deck-host start ---\n")
+        fh.flush()
+    if _frozen() or sys.stdout is None or sys.stderr is None:
+        if fh is not None:
+            sys.stdout = fh
+            sys.stderr = fh
+        return
+    for stream in (sys.stdout, sys.stderr):
+        reconf = getattr(stream, "reconfigure", None)
+        if callable(reconf):
+            try:
+                reconf(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
 _CAPTION_H = 36
 
 TITLE_ROOT = os.environ.get("DECK_HOST_TITLE", "deck host").strip() or "deck host"
@@ -558,7 +602,7 @@ def _attach_window_events(window: webview.Window, api: DeckHostApi) -> None:
             try:
                 payload = api.apply_startup_mode()
                 if _DEBUG:
-                    print(f"[deck-host] startup window mode → {payload}", flush=True)
+                    print(f"[deck-host] startup window mode -> {payload}", flush=True)
             except Exception as e:
                 if _DEBUG:
                     print(f"[deck-host] startup window mode failed: {e}", flush=True)
@@ -682,6 +726,88 @@ def start_rom_process(command: str | list[str], cwd: Path) -> subprocess.Popen:
     return _child
 
 
+_rom_httpd: ThreadingHTTPServer | None = None
+
+
+def _shutdown_rom_httpd() -> None:
+    global _rom_httpd
+    httpd = _rom_httpd
+    _rom_httpd = None
+    if httpd is None:
+        return
+    try:
+        httpd.shutdown()
+    except Exception:
+        pass
+    try:
+        httpd.server_close()
+    except Exception:
+        pass
+
+
+def serve_rom_dir(rom_dir: Path, host: str = "127.0.0.1", port: int = 0) -> str:
+    """Serve a ROM folder in-process. Returns the entry URL (trailing slash)."""
+    global _rom_httpd
+    rom_dir = rom_dir.resolve()
+    if not rom_dir.is_dir():
+        raise FileNotFoundError(f"rom dir missing: {rom_dir}")
+
+    class RomHandler(SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=str(rom_dir), **kwargs)
+
+        def log_message(self, fmt: str, *args: object) -> None:
+            return
+
+        def do_GET(self) -> None:  # noqa: N802
+            path = urlparse(self.path).path
+            if path == "/api/health":
+                body = json.dumps(
+                    {"ok": True, "service": "deck-host-rom", "rom": rom_dir.name}
+                ).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            if path in ("/", ""):
+                self.path = "/index.html"
+            return SimpleHTTPRequestHandler.do_GET(self)
+
+    httpd = ThreadingHTTPServer((host, int(port)), RomHandler)
+    _rom_httpd = httpd
+    bound = int(httpd.server_address[1])
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    atexit.register(_shutdown_rom_httpd)
+    url = f"http://{host}:{bound}/"
+    print(f"[deck-host] in-process ROM  {rom_dir}  ->  {url}")
+    return url
+
+
+def load_rom_manifest(path: Path) -> dict:
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"[deck-host] bad rom.manifest: {path} ({e})", file=sys.stderr)
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def find_rom_manifest(explicit: str | None = None) -> Path | None:
+    if explicit:
+        p = Path(explicit).expanduser()
+        return p if p.is_file() else None
+    here = runtime_dir() / "rom.manifest"
+    if here.is_file():
+        return here
+    return None
+
+
 def wait_for_url(url: str, timeout: float = 20.0) -> bool:
     """Poll until HTTP responds (any code short of connection failure)."""
     deadline = time.time() + timeout
@@ -709,6 +835,28 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Base URL for relative go() paths (optional)",
     )
     p.add_argument("--title", default=None, help="Window title root")
+    p.add_argument(
+        "--rom-dir",
+        default=os.environ.get("DECK_HOST_ROM_DIR", "").strip() or None,
+        help="Serve this folder in-process (itch / ship path). No extra Python.",
+    )
+    p.add_argument(
+        "--manifest",
+        default=os.environ.get("DECK_HOST_MANIFEST", "").strip() or None,
+        help="rom.manifest JSON (title, size, rom_dir). Default: next to the exe.",
+    )
+    p.add_argument(
+        "--rom-port",
+        type=int,
+        default=_env_int("DECK_HOST_ROM_PORT") or 0,
+        help="Port for --rom-dir (0 = pick a free local port)",
+    )
+    p.add_argument(
+        "--debug",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="DevTools (default: on in source, off when frozen / shipped)",
+    )
     p.add_argument(
         "--spawn",
         default=os.environ.get("DECK_HOST_SPAWN", "").strip() or None,
@@ -787,23 +935,60 @@ def _env_int(name: str) -> int | None:
 
 def main(argv: list[str] | None = None) -> None:
     global HOME, BASE, TITLE_ROOT, _MAG_COMPACT, _MAG_SMALL, _MAG_LARGE, _MIN_SIZE, _ON_TOP
-    global _START_WINDOW_MODE
+    global _START_WINDOW_MODE, _DEBUG
 
+    _attach_stdio()
     args = parse_args(argv)
-    apply_profile(args.profile)
-    if args.width and args.height:
-        _MAG_SMALL = (args.width, args.height)
-    elif args.width:
-        _MAG_SMALL = (args.width, _MAG_SMALL[1])
-    elif args.height:
-        _MAG_SMALL = (_MAG_SMALL[0], args.height)
+
+    manifest_path = find_rom_manifest(args.manifest)
+    manifest = load_rom_manifest(manifest_path) if manifest_path else {}
+    if manifest_path:
+        print(f"[deck-host] manifest  {manifest_path}")
+
+    if args.debug is not None:
+        _DEBUG = bool(args.debug)
+    elif "debug" in manifest:
+        _DEBUG = bool(manifest.get("debug"))
+    elif _frozen():
+        _DEBUG = False
+
+    profile = args.profile
+    argv_now = list(argv if argv is not None else sys.argv[1:])
+    cli_profile = any(
+        a == "--profile" or str(a).startswith("--profile=") for a in argv_now
+    )
+    if (
+        (not cli_profile)
+        and (not os.environ.get("DECK_HOST_PROFILE", "").strip())
+        and manifest.get("profile")
+    ):
+        profile = str(manifest.get("profile") or profile)
+    apply_profile(profile)
+    want_w = args.width
+    want_h = args.height
+    if want_w is None and manifest.get("width") is not None:
+        try:
+            want_w = int(manifest["width"])
+        except (TypeError, ValueError):
+            want_w = None
+    if want_h is None and manifest.get("height") is not None:
+        try:
+            want_h = int(manifest["height"])
+        except (TypeError, ValueError):
+            want_h = None
+    if want_w and want_h:
+        _MAG_SMALL = (want_w, want_h)
+    elif want_w:
+        _MAG_SMALL = (want_w, _MAG_SMALL[1])
+    elif want_h:
+        _MAG_SMALL = (_MAG_SMALL[0], want_h)
     # Custom standard size: height-first expand (not a jump to 1600×1200 landscape).
     # Optional explicit expanded via DECK_HOST_EXPANDED_WIDTH / _HEIGHT.
     ew = _env_int("DECK_HOST_EXPANDED_WIDTH")
     eh = _env_int("DECK_HOST_EXPANDED_HEIGHT")
     if ew and eh:
         _MAG_LARGE = (ew, eh)
-    elif args.width and args.height:
+    elif want_w and want_h:
         w, h = _MAG_SMALL
         _MAG_LARGE = (min(w + 48, max(w, 780)), min(h + 240, max(h + 160, 980)))
         _MAG_COMPACT = (max(_MIN_SIZE[0], w - 40), max(_MIN_SIZE[1], h - 60))
@@ -818,9 +1003,23 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.title:
         TITLE_ROOT = args.title.strip() or TITLE_ROOT
+    elif manifest.get("title"):
+        TITLE_ROOT = str(manifest.get("title") or "").strip() or TITLE_ROOT
     if args.base:
         BASE = args.base.rstrip("/")
-    if args.url:
+
+    rom_dir_raw = args.rom_dir or (str(manifest.get("rom_dir") or "").strip() or None)
+    if rom_dir_raw:
+        base = manifest_path.parent if manifest_path else runtime_dir()
+        rom_path = Path(rom_dir_raw)
+        if not rom_path.is_absolute():
+            rom_path = (base / rom_path).resolve()
+        try:
+            HOME = serve_rom_dir(rom_path, port=int(args.rom_port or 0))
+        except Exception as e:
+            print(f"[deck-host] rom-dir failed: {e}", file=sys.stderr)
+            sys.exit(1)
+    elif args.url:
         HOME = args.url
     else:
         HOME = LAUNCHER
@@ -838,7 +1037,7 @@ def main(argv: list[str] | None = None) -> None:
         # server and do not claim ownership to kill on exit.
         already = health and wait_for_url(health, timeout=0.6)
         if already:
-            print(f"[deck-host] ROM already up at {health} — not re-spawning")
+            print(f"[deck-host] ROM already up at {health} - not re-spawning")
         else:
             print(f"[deck-host] starting ROM process in {cwd}")
             print(f"[deck-host]   {args.spawn}")
@@ -848,7 +1047,7 @@ def main(argv: list[str] | None = None) -> None:
                 print(f"[deck-host] spawn failed: {e}", file=sys.stderr)
                 sys.exit(1)
             if health:
-                print(f"[deck-host] waiting for {health} …")
+                print(f"[deck-host] waiting for {health} ...")
                 if not wait_for_url(health, timeout=args.health_timeout):
                     print(
                         f"[deck-host] timeout waiting for ROM at {health}",
@@ -959,6 +1158,7 @@ def main(argv: list[str] | None = None) -> None:
                     webview.start(debug=_DEBUG)
     finally:
         _kill_child()
+        _shutdown_rom_httpd()
 
 
 def re_slug(s: str) -> str:
@@ -969,16 +1169,23 @@ def re_slug(s: str) -> str:
     return s.strip("-") or "host"
 
 if __name__ == "__main__":
+    _attach_stdio()
     print(
         f"the-deck-host: frameless={'ON' if _FRAMELESS else 'OFF'}  "
         f"devtools={'ON' if _DEBUG else 'OFF'}"
     )
     if _FRAMELESS:
         print(
-            "  caption: gem menu · Alt+M · Ctrl+N new · drag · size · "
-            "Ctrl± zoom · F11 deep · Esc surface"
+            "  caption: gem menu / Alt+M / Ctrl+N new / drag / size / "
+            "Ctrl+/- zoom / F11 deep / Esc surface"
         )
-    print("  profiles: desk · datbox · office · companion/rail")
+    print("  profiles: desk / datbox / office / companion/rail")
     if not CAPTION_JS.is_file():
         print(f"  WARNING: missing {CAPTION_JS}")
-    main()
+    try:
+        main()
+    except Exception:
+        import traceback
+
+        traceback.print_exc()
+        sys.exit(1)

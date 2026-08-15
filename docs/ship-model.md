@@ -27,6 +27,38 @@ YourROM/
 
 On launch, the runtime starts whatever local services your ROM needs (if any), opens the window on your ROM’s entry page, and tears those services down when the window closes.
 
+### First ship path (static ROM)
+
+If the ROM is a folder of HTML/CSS/JS (no extra language runtime), **The Deck Host serves it in-process**. No second Python. No `--spawn`.
+
+```
+YourROM/
+  YourROM.exe          # frozen deck_host
+  rom.manifest         # title, size, rom_dir
+  rom/                 # index.html + assets (offline — no CDN)
+```
+
+```json
+{
+  "title": "KDE Notes & Chords",
+  "sku": "CO.KDE-001-INSTR",
+  "profile": "desk",
+  "width": 800,
+  "height": 600,
+  "debug": false,
+  "rom_dir": "rom"
+}
+```
+
+```bat
+python deck_host.py --rom-dir path\to\rom
+python deck_host.py --manifest path\to\rom.manifest
+```
+
+Frozen exe looks next to itself for `rom.manifest`. Double-click is enough.
+
+Specimen: `charlies-toys/kde-notes-chords/` · `tools/pack-itch.py`.
+
 ---
 
 ## While you are building

@@ -36,6 +36,8 @@ loreBOX ships that as `datbox-studio/lore-box/prod/run-loreBOX.bat`.
 | Env / flag | Meaning |
 |------------|---------|
 | `--url` / `DECK_HOST_URL` | Entry page |
+| `--rom-dir` | Serve a ROM folder in-process (itch / static toys) |
+| `--manifest` | `rom.manifest` (title, size, rom_dir). Frozen exe looks next to itself. |
 | `--spawn` / `DECK_HOST_SPAWN` | Start ROM process before window |
 | `--spawn-cwd` | Cwd for that process |
 | `--health` | Wait until this URL answers |

@@ -37,6 +37,10 @@
       "run_script": "my-pocket-things/pocket-journal/prod/run-in-deck-host.py",
       "port": 43166
     },
+    "pocket-go": {
+      "run_script": "my-pocket-things/pocket-go/prod/run-in-deck-host.py",
+      "port": 43210
+    },
     "receiver": {
       "run_script": "the-deck-host/receiver/prod/run-in-deck-host.py",
       "port": 43200

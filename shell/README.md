@@ -1,29 +1,25 @@
 # The Deck Host — shell
 
-Window runtime for ROMs (pywebview + caption).
+Window runtime for ROMs (pywebview + caption). **Default product: ROM Launcher.**
 
-## Primary product: ROM Launcher
+```bat
+cd C:\ALICE_BOX\the-deck-host\shell
+pip install -r requirements.txt
+python deck_host.py
+```
 
-Start menu for ROMs (cartridge cases). Quiet spawn.
+No args opens the cart rail (port **43170**, rail profile). SKU **CO.HOST-001-LAUNCH**.
+
+Or:
 
 ```bat
 cd C:\ALICE_BOX\the-deck-host\rom-launcher\prod
 run-launcher.bat
 ```
 
-SKU **CO.HOST-001-LAUNCH** · port **43170** · reads ROM Cat `launcher_show` + `launches.json`.
+Reads ROM Cat `launcher_show` + `launches.json`, plus seated carts on the shelf.
 
-## Run host only
-
-```bat
-cd the-deck-host\shell
-pip install -r requirements.txt
-python deck_host.py
-```
-
-### Host a ROM that lives elsewhere
-
-ROMs are **not** stored in this repo. The ROM project starts the host:
+### Host a single ROM (dev / itch)
 
 ```bat
 python deck_host.py --title loreBOX --url http://127.0.0.1:42929/ ^
@@ -31,29 +27,28 @@ python deck_host.py --title loreBOX --url http://127.0.0.1:42929/ ^
   --health http://127.0.0.1:42929/api/health
 ```
 
-loreBOX ships that as `datbox-studio/lore-box/prod/run-loreBOX.bat`.
-
 | Env / flag | Meaning |
 |------------|---------|
-| `--url` / `DECK_HOST_URL` | Entry page |
-| `--rom-dir` | Serve a ROM folder in-process (itch / static toys) |
+| *(none)* | ROM Launcher |
+| `--url` / `DECK_HOST_URL` | Entry page (skips launcher) |
+| `--rom-dir` | Serve this folder in-process |
 | `--manifest` | `rom.manifest` (title, size, rom_dir). Frozen exe looks next to itself. |
 | `--spawn` / `DECK_HOST_SPAWN` | Start ROM process before window |
 | `--spawn-cwd` | Cwd for that process |
 | `--health` | Wait until this URL answers |
+| `DECK_HOST_ROMS` | Seated-cart shelf (else `%LOCALAPPDATA%/DeckHost/roms`) |
 | `DECK_HOST_FRAMELESS=0` | OS frame + menu |
 | `DECK_HOST_DEBUG=0` | DevTools off |
+
+## Chrome
+
+Thin by default: min / max / close. Deep, snap, Back/Forward are ROM opt-in (`data-deck-controls`). See [docs/ship-model.md](../docs/ship-model.md).
+
 ## Layout
 
 | Path | Role |
 |------|------|
-| `deck_host.py` | Entry (reworked host) |
-| `caption.js` | Frameless caption (reworked) |
-| `launcher.html` | Dev gate |
-| `from-mypi/` | **Exact copies** of the old pocket-browser sources (reference only) |
-
-Originals also remain under the my-pocket-internet tree (not deleted).
-
-## Caption
-
-Surfaces may set drag regions with `data-deck-drag` (and still honor `--deck-caption-h` / `--pocket-caption-h` for padding under the caption).
+| `deck_host.py` | Entry |
+| `caption.js` | Frameless caption |
+| `launcher.html` | Fallback if ROM Launcher files are missing |
+| `from-mypi/` | Untouched copies of the old pocket-browser (reference only) |

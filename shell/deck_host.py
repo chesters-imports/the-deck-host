@@ -6,11 +6,15 @@ The Deck Host — window runtime for ROMs.
   python deck_host.py
   python deck_host.py --url http://127.0.0.1:42929/
 
+No args opens ROM Launcher (the default product). --url / --spawn / --rom-dir
+run a single cart instead.
+
 Env:
   DECK_HOST_URL          entry URL (overrides default launcher)
   DECK_HOST_BASE         base for relative go() paths (optional)
   DECK_HOST_FRAMELESS=0  OS title bar + optional menu
   DECK_HOST_DEBUG=0      DevTools off
+  DECK_HOST_ROMS         seated-cart shelf (else %LOCALAPPDATA%/DeckHost/roms)
 
 Exact myPI pocket-browser sources: shell/from-mypi/ (untouched copies).
 Builds originals remain at my-pocket-internet/pocket-browser.
@@ -29,6 +33,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
@@ -61,6 +66,9 @@ HERE = runtime_dir()
 _BUNDLE = bundle_dir()
 LAUNCHER = (_BUNDLE / "launcher.html").as_uri()
 CAPTION_JS = _BUNDLE / "caption.js"
+LAUNCHER_PORT = 43170
+LAUNCHER_HTTP = f"http://127.0.0.1:{LAUNCHER_PORT}/"
+LAUNCHER_HEALTH = f"http://127.0.0.1:{LAUNCHER_PORT}/api/health"
 
 
 def _attach_stdio() -> None:
@@ -217,15 +225,37 @@ class DeckHostApi:
         self._mag_large = self._tier == "expanded"
         self._allow_maximize = _PROFILE != "companion"
         self._startup_applied = False
+        self._rail = False
+        self._lock_size = False
+        self._restore_geom: dict | None = None
+        self._layout_key = "desk"
 
     def bind(self, window: webview.Window) -> None:
         self._window = window
+        _API_BY_WINDOW[id(window)] = self
 
     def apply_startup_mode(self) -> str:
         """Call once window is shown — maximizes if prefs asked for it."""
         if self._startup_applied:
             return self._mode_payload()
         self._startup_applied = True
+        geom = self._restore_geom
+        if geom and self._window:
+            try:
+                x, y, w, h = _clamp_geom(
+                    int(geom["x"]), int(geom["y"]), int(geom["w"]), int(geom["h"])
+                )
+                self._window.resize(w, h)
+                self._window.move(x, y)
+                self._normal_size = (w, h)
+            except Exception:
+                pass
+            if geom.get("maximized") and self._allow_maximize:
+                return (
+                    self.set_window_mode("maximized").get("payload")
+                    or self._mode_payload()
+                )
+            return self._mode_payload()
         if self._start_maximized and self._allow_maximize:
             return self.set_window_mode("maximized").get("payload") or self._mode_payload()
         # re-assert tier size (Windows sometimes ignores create size)
@@ -389,12 +419,73 @@ class DeckHostApi:
         return self.get_window_mode()
 
     def close(self) -> None:
-        if self._window:
-            self._window.destroy()
+        if getattr(self, "_rail", False):
+            if self._window:
+                self._window.destroy()
+            return
+        others = [w for w in _DESKS if w is not self._window]
+        if others:
+            if self._window:
+                self._window.destroy()
+            return
+        _quit_host()
 
     def home(self) -> None:
-        if self._window:
-            self._window.load_url(HOME)
+        """Deck: open or focus ROM Launcher. Does not replace this ROM's page."""
+        self.open_deck()
+
+    def open_deck(self) -> str:
+        """Open / focus ROM Launcher (the default Deck Host product)."""
+        if is_launcher_surface():
+            if self._window:
+                try:
+                    self._window.restore()
+                    self._window.show()
+                except Exception:
+                    pass
+            return "here"
+        if focus_window_title("LAUNCH"):
+            return "focus"
+        if spawn_rom_launcher():
+            return "spawn"
+        return "err"
+
+    def pick_folder(self) -> str:
+        """Native folder picker (launcher Install)."""
+        return self._file_dialog("FOLDER")
+
+    def pick_archive(self) -> str:
+        """Native .rom picker (zip payload). .zip still accepted."""
+        return self._file_dialog(
+            "OPEN",
+            file_types=("ROM cart (*.rom)", "Zip (*.zip)"),
+        )
+
+    def _file_dialog(
+        self, kind: str, file_types: tuple[str, ...] | None = None
+    ) -> str:
+        if not self._window:
+            return ""
+        dialog = None
+        fd = getattr(webview, "FileDialog", None)
+        if fd is not None:
+            dialog = getattr(fd, kind, None)
+        if dialog is None:
+            legacy = {"FOLDER": "FOLDER_DIALOG", "OPEN": "OPEN_DIALOG"}
+            dialog = getattr(webview, legacy.get(kind, ""), None)
+        if dialog is None:
+            return ""
+        try:
+            kw: dict = {}
+            if file_types:
+                kw["file_types"] = list(file_types)
+            result = self._window.create_file_dialog(dialog, **kw)
+            if result:
+                return str(result[0])
+        except Exception as e:
+            if _DEBUG:
+                print(f"[deck-host] file dialog failed: {e}")
+        return ""
 
     def go(self, path: str) -> None:
         """Navigate to absolute URL, or BASE+path if BASE is set."""
@@ -410,9 +501,25 @@ class DeckHostApi:
         else:
             self._window.load_url(path if "://" in path else HOME)
 
+    def open_external(self, url: str = "") -> str:
+        """Open http(s) in the OS browser. Does not navigate this window."""
+        dest = (url or "").strip()
+        if not dest.startswith(("http://", "https://")):
+            return "err:url"
+        if any(c in dest for c in "\n\r\t"):
+            return "err:url"
+        try:
+            webbrowser.open(dest, new=2)
+        except Exception as e:
+            return f"err:{e}"
+        return "ok"
+
     def hard_refresh(self) -> None:
+        """Chip menu: stop the ROM server, start it again, reload this window."""
         if not self._window:
             return
+        if _spawn_command:
+            restart_rom_server()
         try:
             url = self._window.get_current_url() or ""
             if not url or url.startswith("file:"):
@@ -436,14 +543,110 @@ class DeckHostApi:
             except Exception:
                 pass
 
-    def new_window(self) -> str:
+    def new_window(
+        self,
+        url: str = "",
+        width: int = 0,
+        height: int = 0,
+        min_width: int = 0,
+        min_height: int = 0,
+        title: str = "",
+        house: str = "",
+    ) -> str:
+        """Another Deck Host window. Ctrl+N = same ROM. ROMs may pass a child URL + rail size."""
         try:
-            spawn_deck_window()
+            dest = _safe_child_url(str(url or ""))
+            key = str(house or "").strip().lower()
+            if key and key in _SIDECARS:
+                existing = _SIDECARS[key]
+                try:
+                    existing.restore()
+                    existing.show()
+                    return "ok"
+                except Exception:
+                    _SIDECARS.pop(key, None)
+            wdt = _as_pos_int(width)
+            hgt = _as_pos_int(height)
+            rail = bool(key) or bool(wdt and hgt)
+            lock_size = False
+            saved = (_load_layout().get("houses") or {}).get(key) if key else {}
+            if not isinstance(saved, dict):
+                saved = {}
+            if rail and not wdt:
+                wdt = _as_pos_int(saved.get("w")) or 420
+                hgt = _as_pos_int(saved.get("h")) or 760
+            elif saved:
+                if not wdt:
+                    wdt = _as_pos_int(saved.get("w"))
+                if not hgt:
+                    hgt = _as_pos_int(saved.get("h"))
+            mw, mh = _as_pos_int(min_width), _as_pos_int(min_height)
+            min_size = (mw, mh) if mw and mh else ((300, 420) if rail else None)
+            gx, gy = None, None
+            if "x" in saved and "y" in saved:
+                gx, gy = saved.get("x"), saved.get("y")
+            w = spawn_deck_window(
+                url=dest,
+                width=wdt or None,
+                height=hgt or None,
+                min_size=min_size,
+                title=str(title or "").strip() or None,
+                rail=rail,
+                lock_size=lock_size,
+                x=gx,
+                y=gy,
+                layout_key=key or ("desk" if not rail else ""),
+                restore_geom=saved or None,
+            )
+            if key:
+                _track_sidecar(key, w)
             return "ok"
         except Exception as e:
             if _DEBUG:
                 print(f"[deck-host] new_window failed: {e}")
             return f"err:{e}"
+
+
+    def resize(self, spec: str = "") -> str:
+        """JS: pywebview.api.resize('440x760') or '440x760@120,80' (keep a screen edge)."""
+        if getattr(self, "_lock_size", False) and self._startup_applied:
+            w0, h0 = self._normal_size
+            return f"{w0}x{h0}"
+        spec = str(spec or "").strip().lower().replace(" ", "")
+        pos = None
+        if "@" in spec:
+            spec, _, xy = spec.partition("@")
+            xs, _, ys = xy.partition(",")
+            try:
+                pos = (int(xs), int(ys))
+            except ValueError:
+                pos = None
+        if "x" not in spec or self._window is None:
+            return "err:size"
+        left, _, right = spec.partition("x")
+        try:
+            w, h = int(left), int(right)
+        except ValueError:
+            return "err:size"
+        w = max(320, min(w, 2400))
+        h = max(240, min(h, 1800))
+        try:
+            self._window.restore()
+        except Exception:
+            pass
+        try:
+            self._window.resize(w, h)
+            if pos is not None:
+                try:
+                    self._window.move(pos[0], pos[1])
+                except Exception:
+                    pass
+            self._normal_size = (w, h)
+            self._maximized = False
+            _schedule_save()
+        except Exception as e:
+            return f"err:{e}"
+        return f"{w}x{h}"
 
 
 _KEY_BRIDGE_JS = r"""
@@ -561,6 +764,283 @@ def build_caption_js(title: str) -> str:
     return preamble + _CAPTION_SRC
 
 
+def _mute_native_status_bar(window: webview.Window) -> bool:
+    """Hide Edge/WebView2's hover-URL pill. Must run on the WinForms UI thread."""
+    native = getattr(window, "native", None)
+    if native is None:
+        return False
+    wv = getattr(native, "webview", None)
+    if wv is None:
+        browser = getattr(native, "browser", None)
+        wv = getattr(browser, "webview", None) if browser is not None else None
+    if wv is None:
+        return False
+
+    def apply() -> bool:
+        try:
+            core = getattr(wv, "CoreWebView2", None)
+            settings = getattr(core, "Settings", None) if core is not None else None
+            if settings is None:
+                return False
+            settings.IsStatusBarEnabled = False
+            return True
+        except Exception as e:
+            print(f"[deck-host] mute status apply failed: {e}", flush=True)
+            return False
+
+    try:
+        invoke = getattr(wv, "Invoke", None)
+        if callable(invoke):
+            box = [False]
+
+            def wrapped() -> None:
+                box[0] = apply()
+
+            try:
+                from System import Action
+
+                invoke(Action(wrapped))
+            except Exception:
+                invoke(wrapped)
+            return bool(box[0])
+        return apply()
+    except Exception as e:
+        print(f"[deck-host] mute status invoke failed: {e}", flush=True)
+        return False
+
+
+def _hook_status_bar_off(window: webview.Window) -> None:
+    """Subscribe so we win even if pywebview turns the pill back on at init."""
+    native = getattr(window, "native", None)
+    wv = getattr(native, "webview", None) if native is not None else None
+    if wv is None:
+        return
+    if getattr(wv, "_deck_status_hooked", False):
+        return
+
+    def on_ready(sender, args) -> None:
+        try:
+            sender.CoreWebView2.Settings.IsStatusBarEnabled = False
+        except Exception:
+            pass
+
+    try:
+        wv.CoreWebView2InitializationCompleted += on_ready
+        wv._deck_status_hooked = True
+    except Exception:
+        pass
+
+
+def _native_hwnd(window: webview.Window) -> tuple[object | None, int]:
+    """WinForms handle for DWM / style tweaks. (native, hwnd) or (None, 0)."""
+    native = getattr(window, "native", None)
+    if native is None:
+        return None, 0
+    try:
+        handle = getattr(native, "Handle", None)
+        if handle is None:
+            return native, 0
+        to_int = getattr(handle, "ToInt64", None) or getattr(handle, "ToInt32", None)
+        hwnd = int(to_int()) if callable(to_int) else int(handle)
+    except Exception:
+        return native, 0
+    return native, hwnd
+
+
+def _invoke_native(native: object, fn) -> bool:
+    invoke = getattr(native, "Invoke", None)
+    if not callable(invoke):
+        return bool(fn())
+    box = [False]
+
+    def wrapped() -> None:
+        box[0] = bool(fn())
+
+    try:
+        from System import Action
+
+        invoke(Action(wrapped))
+    except Exception:
+        try:
+            invoke(wrapped)
+        except Exception:
+            return bool(fn())
+    return bool(box[0])
+
+
+# Keep WNDPROC callbacks alive (ctypes will crash if GC collects them).
+_NCCALC_HOOKS: dict[int, tuple] = {}
+_GWL_WNDPROC = -4
+_WM_NCCALCSIZE = 0x0083
+
+
+def _install_nccalcsize_hook(hwnd: int) -> bool:
+    """Client area = full window. WS_THICKFRAME otherwise paints a Win11 caption band."""
+    if not hwnd or hwnd in _NCCALC_HOOKS:
+        return hwnd in _NCCALC_HOOKS
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.windll.user32
+        is64 = ctypes.sizeof(ctypes.c_void_p) == 8
+        LRESULT = ctypes.c_int64 if is64 else ctypes.c_long
+        WNDPROC = ctypes.WINFUNCTYPE(
+            LRESULT,
+            wintypes.HWND,
+            ctypes.c_uint,
+            wintypes.WPARAM,
+            wintypes.LPARAM,
+        )
+        if is64:
+            get_long = user32.GetWindowLongPtrW
+            set_long = user32.SetWindowLongPtrW
+            call_proc = user32.CallWindowProcW
+        else:
+            get_long = user32.GetWindowLongW
+            set_long = user32.SetWindowLongW
+            call_proc = user32.CallWindowProcW
+        get_long.argtypes = [wintypes.HWND, ctypes.c_int]
+        get_long.restype = ctypes.c_void_p
+        set_long.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_void_p]
+        set_long.restype = ctypes.c_void_p
+        call_proc.argtypes = [
+            ctypes.c_void_p,
+            wintypes.HWND,
+            ctypes.c_uint,
+            wintypes.WPARAM,
+            wintypes.LPARAM,
+        ]
+        call_proc.restype = LRESULT
+
+        orig = get_long(hwnd, _GWL_WNDPROC)
+        if not orig:
+            return False
+
+        def _wndproc(h, msg, wparam, lparam):
+            # wParam TRUE: returning 0 makes the client rect the window rect
+            # (no OS caption strip). Edge resize stays via JS grips + THICKFRAME.
+            if msg == _WM_NCCALCSIZE and wparam:
+                return 0
+            return call_proc(orig, h, msg, wparam, lparam)
+
+        cb = WNDPROC(_wndproc)
+        set_long(hwnd, _GWL_WNDPROC, ctypes.cast(cb, ctypes.c_void_p).value)
+        _NCCALC_HOOKS[hwnd] = (cb, orig)
+        return True
+    except Exception as e:
+        if _DEBUG:
+            print(f"[deck-host] nccalcsize hook: {e}", flush=True)
+        return False
+
+
+def _mute_dwm_caption_band(window: webview.Window) -> bool:
+    """Stop DWM from painting a Mica/caption band into the client area.
+
+    pywebview turns on shadow via DwmExtendFrameIntoClientArea and, on a
+    dark Windows theme, DWMWA_SYSTEMBACKDROP_TYPE=MAINWINDOW. WS_THICKFRAME
+    (OS-edge resize) makes Win11 draw a black caption strip on top of ROM
+    chrome. Keep side/bottom glass for the drop shadow; hide the top caption.
+    """
+    if sys.platform != "win32" or not _FRAMELESS:
+        return True
+    native, hwnd = _native_hwnd(window)
+    if native is None or not hwnd:
+        return False
+
+    def apply() -> bool:
+        try:
+            import ctypes
+
+            class _MARGINS(ctypes.Structure):
+                _fields_ = [
+                    ("cxLeftWidth", ctypes.c_int),
+                    ("cxRightWidth", ctypes.c_int),
+                    ("cyTopHeight", ctypes.c_int),
+                    ("cyBottomHeight", ctypes.c_int),
+                ]
+
+            dwmapi = ctypes.windll.dwmapi
+            m = _MARGINS()
+            m.cxLeftWidth = 1
+            m.cxRightWidth = 1
+            m.cyTopHeight = 0
+            m.cyBottomHeight = 1
+            dwmapi.DwmExtendFrameIntoClientArea(hwnd, ctypes.byref(m))
+            # DWMWA_SYSTEMBACKDROP_TYPE = 38, DWMSBT_NONE = 1
+            none = ctypes.c_int(1)
+            dwmapi.DwmSetWindowAttribute(
+                hwnd, 38, ctypes.byref(none), ctypes.sizeof(none)
+            )
+            # Win11 22000+: hide DWM caption fill (0xFFFFFFFE = DWMWA_COLOR_NONE)
+            color_none = ctypes.c_uint32(0xFFFFFFFE)
+            dwmapi.DwmSetWindowAttribute(
+                hwnd, 35, ctypes.byref(color_none), ctypes.sizeof(color_none)
+            )
+            _install_nccalcsize_hook(hwnd)
+            return True
+        except Exception as e:
+            if _DEBUG:
+                print(f"[deck-host] dwm caption mute: {e}", flush=True)
+            return False
+
+    return _invoke_native(native, apply)
+
+
+def _enable_frameless_os_resize(window: webview.Window) -> bool:
+    """Frameless Win32: restore a thick frame so OS edges resize like a browser."""
+    if sys.platform != "win32" or not _FRAMELESS:
+        return True
+    native, hwnd = _native_hwnd(window)
+    if native is None or not hwnd:
+        return False
+
+    def apply() -> bool:
+        try:
+            import ctypes
+
+            user32 = ctypes.windll.user32
+            GWL_STYLE = -16
+            WS_CAPTION = 0x00C00000
+            WS_THICKFRAME = 0x00040000
+            WS_MINIMIZEBOX = 0x00020000
+            WS_MAXIMIZEBOX = 0x00010000
+            SWP_NOSIZE = 0x0001
+            SWP_NOMOVE = 0x0002
+            SWP_NOZORDER = 0x0004
+            SWP_FRAMECHANGED = 0x0020
+            if ctypes.sizeof(ctypes.c_void_p) == 8:
+                get_style = user32.GetWindowLongPtrW
+                set_style = user32.SetWindowLongPtrW
+                get_style.restype = ctypes.c_longlong
+                set_style.restype = ctypes.c_longlong
+            else:
+                get_style = user32.GetWindowLongW
+                set_style = user32.SetWindowLongW
+            style = int(get_style(hwnd, GWL_STYLE))
+            style |= WS_THICKFRAME | WS_MAXIMIZEBOX | WS_MINIMIZEBOX
+            # THICKFRAME implies a Win11 title band unless CAPTION is cleared.
+            style &= ~WS_CAPTION
+            set_style(hwnd, GWL_STYLE, style)
+            _install_nccalcsize_hook(hwnd)
+            user32.SetWindowPos(
+                hwnd,
+                None,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
+            )
+            return True
+        except Exception as e:
+            if _DEBUG:
+                print(f"[deck-host] os resize: {e}", flush=True)
+            return False
+
+    return _invoke_native(native, apply)
+
+
 def _attach_window_events(window: webview.Window, api: DeckHostApi) -> None:
     def inject_caption(short_title: str) -> None:
         if not _FRAMELESS:
@@ -588,7 +1068,19 @@ def _attach_window_events(window: webview.Window, api: DeckHostApi) -> None:
             url = window.get_current_url() or ""
             full = path_title(url, short=False)
             short = path_title(url, short=True)
-            window.set_title(full if not _FRAMELESS else short)
+            page = ""
+            try:
+                raw = window.evaluate_js(
+                    "(function(){try{return String(document.title||'');}catch(e){return '';}})()"
+                )
+                page = str(raw or "").strip().strip('"').strip("'")
+            except Exception:
+                page = ""
+            if page:
+                window.set_title(page)
+                short = page
+            else:
+                window.set_title(full if not _FRAMELESS else short)
         except Exception:
             pass
         try:
@@ -596,13 +1088,62 @@ def _attach_window_events(window: webview.Window, api: DeckHostApi) -> None:
         except Exception:
             pass
         inject_caption(short)
+
+        def _mute(n: int = 0) -> None:
+            _hook_status_bar_off(window)
+            if _mute_native_status_bar(window):
+                if _DEBUG and n == 0:
+                    print("[deck-host] Edge status bar muted", flush=True)
+                return
+            if n < 12:
+                threading.Timer(0.25, lambda: _mute(n + 1)).start()
+
+        def _os_resize(n: int = 0) -> None:
+            _enable_frameless_os_resize(window)
+            _mute_dwm_caption_band(window)
+            if n < 6:
+                threading.Timer(0.35, lambda: _os_resize(n + 1)).start()
+
+        _mute(0)
+        _os_resize(0)
+
         # Re-apply size/maximize after surface is up (create size is often ignored
         # or reset; JS prefs also call set_window_mode as a second belt).
+        # Companion rails keep the size they were spawned with — never fight JS,
+        # never snap to 640×480 on each loaded URL.
         def _startup() -> None:
             try:
+                if getattr(api, "_rail", False):
+                    _apply_restore_geom(window, api)
+                    return
+                url = ""
+                try:
+                    url = window.get_current_url() or ""
+                except Exception:
+                    url = ""
+                if "sidecar=" in url:
+                    api._rail = True
+                    api._startup_applied = True
+                    api._allow_maximize = False
+                    api._start_maximized = False
+                    api._maximized = False
+                    if _apply_restore_geom(window, api):
+                        api._tier = "compact"
+                        return
+                    w, h = api._normal_size or (440, 760)
+                    if w >= 600 or h <= 520:
+                        w, h = 440, 760
+                    try:
+                        window.resize(w, h)
+                    except Exception:
+                        pass
+                    api._normal_size = (w, h)
+                    api._tier = "compact"
+                    return
                 payload = api.apply_startup_mode()
                 if _DEBUG:
                     print(f"[deck-host] startup window mode -> {payload}", flush=True)
+                threading.Timer(0.9, _restore_open_houses).start()
             except Exception as e:
                 if _DEBUG:
                     print(f"[deck-host] startup window mode failed: {e}", flush=True)
@@ -610,21 +1151,455 @@ def _attach_window_events(window: webview.Window, api: DeckHostApi) -> None:
         threading.Timer(0.15, _startup).start()
         threading.Timer(0.6, _startup).start()
 
+    def on_geom(*_a: object, **_k: object) -> None:
+        _schedule_save()
+
+    def on_frame(*_a: object, **_k: object) -> None:
+        _schedule_save()
+        # Win11 re-paints the caption band after snap / maximize / restore.
+        _mute_dwm_caption_band(window)
+
+    def on_shown(*_a: object, **_k: object) -> None:
+        _apply_restore_geom(window, api)
+        if not getattr(api, "_rail", False):
+            threading.Timer(0.85, _restore_open_houses).start()
+
+    def on_closing(*_a: object, **_k: object) -> None:
+        key = str(getattr(api, "_layout_key", "") or "")
+        if getattr(api, "_rail", False) or (key and key != "desk"):
+            if key:
+                _remember_house(key, window, open_=False)
+        else:
+            _remember_desk(window)
+        if not _QUITTING:
+            _save_layout()
+
     window.events.loaded += on_loaded
+    for ev_name, handler in (
+        ("moved", on_geom),
+        ("resized", on_frame),
+        ("maximized", on_frame),
+        ("restored", on_frame),
+        ("shown", on_shown),
+        ("closing", on_closing),
+    ):
+        try:
+            ev = getattr(window.events, ev_name)
+            ev += handler
+        except Exception:
+            pass
+    if not getattr(api, "_rail", False):
+        _register_desk(window)
+
+
+_SIDECARS: dict[str, webview.Window] = {}
+_DESKS: list[webview.Window] = []
+_QUITTING = False
+
+
+def _quit_host() -> None:
+    """Close every cabinet and desk, then stop the ROM server. Exit the application."""
+    global _QUITTING, _SAVE_TIMER
+    if _QUITTING:
+        return
+    try:
+        _save_layout(force=True)
+    except Exception:
+        pass
+    with _LAYOUT_LOCK:
+        if _SAVE_TIMER is not None:
+            try:
+                _SAVE_TIMER.cancel()
+            except Exception:
+                pass
+            _SAVE_TIMER = None
+    _QUITTING = True
+    rails = list(_SIDECARS.values())
+    _SIDECARS.clear()
+    for w in rails:
+        try:
+            w.destroy()
+        except Exception:
+            pass
+    desks = list(_DESKS)
+    _DESKS.clear()
+    for w in desks:
+        try:
+            w.destroy()
+        except Exception:
+            pass
+    _kill_child()
+
+
+def _register_desk(window: webview.Window) -> None:
+    if window not in _DESKS:
+        _DESKS.append(window)
+
+    def _gone() -> None:
+        if _QUITTING:
+            return
+        try:
+            _DESKS.remove(window)
+        except ValueError:
+            pass
+        if not _DESKS:
+            _quit_host()
+
+    try:
+        window.events.closed += _gone
+    except Exception:
+        pass
+
+
+def _as_pos_int(v: object) -> int:
+    try:
+        n = int(v)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0
+    return n if n > 0 else 0
+
+
+def _safe_child_url(url: str) -> str:
+    """Same-origin child pages only. Empty → this ROM's home."""
+    url = (url or "").strip()
+    home = (HOME or "").strip()
+    if not url:
+        return home
+    if url.startswith("/") and not url.startswith("//"):
+        origin = home.split("/", 3)
+        base = "/".join(origin[:3]) if home.startswith("http") else home.rstrip("/")
+        return base.rstrip("/") + url
+    try:
+        child = urlparse(url)
+        parent = urlparse(home)
+    except Exception:
+        return home
+    if child.scheme not in ("http", "https"):
+        return home
+    host_ok = (child.hostname or "") in ("127.0.0.1", "localhost")
+    parent_host = (parent.hostname or "") in ("127.0.0.1", "localhost")
+    if not (host_ok and parent_host):
+        return home
+    if child.port and parent.port and child.port != parent.port:
+        return home
+    return url
+
+
+def _url_on_home(url: str, fallback_path: str = "") -> str:
+    """Keep path/query, retarget onto this ROM's origin (ports change between launches)."""
+    home = (HOME or "").strip()
+    raw = (url or "").strip() or (fallback_path or "")
+    if not raw:
+        return home
+    if raw.startswith("/") and not raw.startswith("//"):
+        return _safe_child_url(raw)
+    try:
+        child = urlparse(raw)
+        parent = urlparse(home)
+        if child.scheme in ("http", "https") and (child.hostname or "") in (
+            "127.0.0.1",
+            "localhost",
+        ):
+            path = child.path or "/"
+            return urlunparse(
+                (parent.scheme or child.scheme, parent.netloc, path, "", child.query, "")
+            )
+    except Exception:
+        pass
+    return _safe_child_url(raw)
+
+
+_API_BY_WINDOW: dict[int, DeckHostApi] = {}
+_LAYOUT_LOCK = threading.Lock()
+_SAVE_TIMER: threading.Timer | None = None
+_HOUSES_RESTORED = False
+_LAST_DESK: dict | None = None
+_LAST_HOUSES: dict[str, dict] = {}
+
+
+def _layout_path() -> Path:
+    folder = HERE / ".webview_profiles" / re_slug(TITLE_ROOT)
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / "layout.json"
+
+
+def _virtual_screen() -> tuple[int, int, int, int]:
+    """Virtual desktop origin + size (multi-monitor). x/y may be negative."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            user32 = ctypes.windll.user32
+            return (
+                int(user32.GetSystemMetrics(76)),
+                int(user32.GetSystemMetrics(77)),
+                int(user32.GetSystemMetrics(78)),
+                int(user32.GetSystemMetrics(79)),
+            )
+        except Exception:
+            pass
+    return (0, 0, 3840, 2160)
+
+
+def _clamp_geom(x: int, y: int, w: int, h: int) -> tuple[int, int, int, int]:
+    vx, vy, vw, vh = _virtual_screen()
+    w = max(320, min(int(w), 2400))
+    h = max(240, min(int(h), 1800))
+    x = int(x)
+    y = int(y)
+    if vw > 0:
+        if x + 80 < vx:
+            x = vx
+        if x > vx + vw - 80:
+            x = vx + max(0, vw - min(w, vw))
+    if vh > 0:
+        if y + 40 < vy:
+            y = vy
+        if y > vy + vh - 40:
+            y = vy
+    return x, y, w, h
+
+
+def _geom_of(window: webview.Window | None) -> dict | None:
+    if window is None:
+        return None
+    try:
+        x, y = int(window.x), int(window.y)
+        w, h = int(window.width), int(window.height)
+    except Exception:
+        return None
+    x, y, w, h = _clamp_geom(x, y, w, h)
+    return {"x": x, "y": y, "w": w, "h": h}
+
+
+def _apply_restore_geom(window: webview.Window | None, api: DeckHostApi) -> bool:
+    geom = getattr(api, "_restore_geom", None)
+    if not geom or not window:
+        return False
+    if getattr(api, "_maximized", False):
+        return True
+    try:
+        x, y, w, h = _clamp_geom(
+            int(geom["x"]), int(geom["y"]), int(geom["w"]), int(geom["h"])
+        )
+        window.resize(w, h)
+        window.move(x, y)
+        api._normal_size = (w, h)
+        return True
+    except Exception:
+        return False
+
+
+def _remember_desk(window: webview.Window | None) -> None:
+    global _LAST_DESK
+    g = _geom_of(window)
+    if not g:
+        return
+    api = _API_BY_WINDOW.get(id(window)) if window is not None else None
+    if api is not None:
+        g["maximized"] = bool(getattr(api, "_maximized", False))
+        if g["maximized"]:
+            ns = getattr(api, "_normal_size", None)
+            if ns and int(ns[0]) > 0 and int(ns[1]) > 0:
+                g["w"], g["h"] = int(ns[0]), int(ns[1])
+    _LAST_DESK = g
+
+
+def _remember_house(key: str, window: webview.Window | None, *, open_: bool) -> None:
+    key = str(key or "").strip().lower()
+    if not key:
+        return
+    prev = dict(_LAST_HOUSES.get(key) or {})
+    g = _geom_of(window)
+    if g:
+        url = ""
+        try:
+            url = (window.get_current_url() if window is not None else "") or ""
+        except Exception:
+            url = str(prev.get("url") or "")
+        _LAST_HOUSES[key] = {**g, "url": url, "open": bool(open_)}
+        return
+    if prev:
+        prev["open"] = bool(open_)
+        _LAST_HOUSES[key] = prev
+
+
+def _load_layout() -> dict:
+    try:
+        raw = json.loads(_layout_path().read_text(encoding="utf-8"))
+        if isinstance(raw, dict):
+            return raw
+    except Exception:
+        pass
+    return {}
+
+
+def _save_layout(*, force: bool = False) -> None:
+    global _LAST_DESK
+    if _QUITTING and not force:
+        return
+    prev = _load_layout()
+    desk_rec = None
+    if _DESKS:
+        _remember_desk(_DESKS[0])
+        desk_rec = _LAST_DESK
+    if desk_rec is None:
+        desk_rec = _LAST_DESK
+    if desk_rec is None:
+        prev_desk = prev.get("desk")
+        if isinstance(prev_desk, dict):
+            desk_rec = dict(prev_desk)
+    houses: dict = {}
+    prev_houses = prev.get("houses") or {}
+    if isinstance(prev_houses, dict):
+        for k, rec in prev_houses.items():
+            if isinstance(rec, dict):
+                houses[str(k)] = dict(rec)
+                houses[str(k)]["open"] = False
+    for k, rec in _LAST_HOUSES.items():
+        if isinstance(rec, dict):
+            houses[str(k)] = dict(rec)
+            houses[str(k)]["open"] = False
+    for key, w in list(_SIDECARS.items()):
+        _remember_house(str(key), w, open_=True)
+        rec = _LAST_HOUSES.get(str(key))
+        if rec:
+            houses[str(key)] = {**rec, "open": True}
+    data = {"desk": desk_rec, "houses": houses}
+    try:
+        path = _layout_path()
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        tmp.replace(path)
+    except Exception as e:
+        if _DEBUG:
+            print(f"[deck-host] layout save failed: {e}", flush=True)
+
+
+def _schedule_save() -> None:
+    global _SAVE_TIMER
+    if _QUITTING:
+        return
+
+    def _go() -> None:
+        _save_layout()
+
+    with _LAYOUT_LOCK:
+        if _SAVE_TIMER is not None:
+            try:
+                _SAVE_TIMER.cancel()
+            except Exception:
+                pass
+        _SAVE_TIMER = threading.Timer(0.5, _go)
+        _SAVE_TIMER.daemon = True
+        _SAVE_TIMER.start()
+
+
+def _track_sidecar(key: str, window: webview.Window) -> None:
+    _SIDECARS[key] = window
+    _remember_house(key, window, open_=True)
+
+    def _drop() -> None:
+        _remember_house(key, window, open_=False)
+        if _SIDECARS.get(key) is window:
+            _SIDECARS.pop(key, None)
+        _API_BY_WINDOW.pop(id(window), None)
+        if not _QUITTING:
+            _save_layout()
+
+    try:
+        window.events.closed += _drop
+    except Exception:
+        pass
+    _schedule_save()
+
+
+def _restore_open_houses() -> None:
+    global _HOUSES_RESTORED
+    if _HOUSES_RESTORED:
+        return
+    _HOUSES_RESTORED = True
+    if _QUITTING:
+        return
+    houses = _load_layout().get("houses") or {}
+    if not isinstance(houses, dict):
+        return
+    restored = 0
+    for key, rec in houses.items():
+        key = str(key or "").strip().lower()
+        if not key or key == "desk" or not isinstance(rec, dict) or not rec.get("open"):
+            continue
+        if key in _SIDECARS:
+            continue
+        url = str(rec.get("url") or "").strip()
+        dest = _url_on_home(url, "/?sidecar=" + key)
+        wdt = _as_pos_int(rec.get("w")) or 440
+        hgt = _as_pos_int(rec.get("h")) or 760
+        try:
+            w = spawn_deck_window(
+                url=dest,
+                width=wdt,
+                height=hgt,
+                min_size=(300, 420),
+                rail=True,
+                lock_size=False,
+                x=rec.get("x"),
+                y=rec.get("y"),
+                layout_key=key,
+                restore_geom=rec,
+            )
+            _track_sidecar(key, w)
+            restored += 1
+        except Exception as e:
+            if _DEBUG:
+                print(f"[deck-host] restore {key} failed: {e}", flush=True)
+    if restored:
+        print(f"[deck-host] restore {restored} house(s)", flush=True)
+    if _DESKS:
+        try:
+            _DESKS[0].show()
+        except Exception:
+            pass
 
 
 def spawn_deck_window(
     url: str | None = None,
     width: int | None = None,
     height: int | None = None,
+    min_size: tuple[int, int] | None = None,
+    title: str | None = None,
+    on_top: bool | None = None,
+    rail: bool = False,
+    lock_size: bool | None = None,
+    x: object = None,
+    y: object = None,
+    layout_key: str = "",
+    restore_geom: dict | None = None,
 ) -> webview.Window:
     api = DeckHostApi(start_mode=_START_WINDOW_MODE)
+    wdt = width or _MAG_SMALL[0]
+    hgt = height or _MAG_SMALL[1]
+    if rail:
+        api._rail = True
+        api._startup_applied = True
+        api._lock_size = True if lock_size is None else bool(lock_size)
+        api._mag_compact = (max(300, wdt - 60), max(560, hgt - 120))
+        api._mag_small = (wdt, hgt)
+        api._mag_large_size = (wdt + 60, hgt + 160)
+        api._allow_maximize = False
+        api._tier = "standard"
+        api._start_maximized = False
+        api._normal_size = (wdt, hgt)
+    if restore_geom:
+        api._restore_geom = dict(restore_geom)
+    if layout_key:
+        api._layout_key = str(layout_key)
     kw: dict = {
-        "title": TITLE_ROOT,
+        "title": title or TITLE_ROOT,
         "url": url or HOME,
-        "width": width or _MAG_SMALL[0],
-        "height": height or _MAG_SMALL[1],
-        "min_size": _MIN_SIZE,
+        "width": wdt,
+        "height": hgt,
+        "min_size": min_size or _MIN_SIZE,
         "background_color": "#0a0c12",
         "text_select": True,
         "frameless": _FRAMELESS,
@@ -633,15 +1608,89 @@ def spawn_deck_window(
         "shadow": True,
         "js_api": api,
     }
-    if _ON_TOP:
+    try:
+        if x is not None and y is not None:
+            cx, cy, cw, ch = _clamp_geom(int(x), int(y), wdt, hgt)
+            kw["x"] = cx
+            kw["y"] = cy
+            kw["width"] = cw
+            kw["height"] = ch
+            api._normal_size = (cw, ch)
+    except (TypeError, ValueError):
+        pass
+    top = _ON_TOP if on_top is None else bool(on_top)
+    if top:
         kw["on_top"] = True
-    w = webview.create_window(**kw)
+    try:
+        w = webview.create_window(**kw)
+    except TypeError:
+        kw.pop("x", None)
+        kw.pop("y", None)
+        w = webview.create_window(**kw)
     api.bind(w)
     _attach_window_events(w, api)
     return w
 
 
 _child: subprocess.Popen | None = None
+_spawn_command: str | list[str] | None = None
+_spawn_cwd: Path | None = None
+_health_url: str | None = None
+_health_timeout: float = 20.0
+
+
+def _kill_listeners(url: str) -> None:
+    """Free the ROM port after a server we may not have spawned."""
+    if sys.platform != "win32":
+        return
+    port = urlparse(url).port
+    if not port:
+        return
+    try:
+        out = subprocess.run(
+            ["netstat", "-ano", "-p", "tcp"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except Exception:
+        return
+    needle = f":{port}"
+    pids: set[int] = set()
+    for line in out.stdout.splitlines():
+        if "LISTENING" not in line or needle not in line:
+            continue
+        parts = line.split()
+        if parts and parts[-1].isdigit():
+            pid = int(parts[-1])
+            if pid > 0:
+                pids.add(pid)
+    for pid in pids:
+        subprocess.run(
+            ["taskkill", "/PID", str(pid), "/T", "/F"],
+            capture_output=True,
+            check=False,
+        )
+
+
+def restart_rom_server() -> bool:
+    """Stop this ROM's server and start it again. Page reload is the caller's job."""
+    if not _spawn_command or _spawn_cwd is None:
+        return False
+    _kill_child()
+    if _health_url:
+        _kill_listeners(_health_url)
+        time.sleep(0.4)
+    try:
+        start_rom_process(_spawn_command, _spawn_cwd)
+    except Exception as e:
+        print(f"[deck-host] restart failed: {e}", file=sys.stderr)
+        return False
+    if _health_url and not wait_for_url(_health_url, timeout=_health_timeout):
+        print(f"[deck-host] restart timed out waiting for {_health_url}", file=sys.stderr)
+        return False
+    print("[deck-host] ROM restarted")
+    return True
 
 
 def _kill_child() -> None:
@@ -808,6 +1857,96 @@ def find_rom_manifest(explicit: str | None = None) -> Path | None:
     return None
 
 
+def launcher_sys_dir() -> Path:
+    """rom-launcher/prod/launch_sys next to this shell."""
+    return Path(__file__).resolve().parent.parent / "rom-launcher" / "prod" / "launch_sys"
+
+
+def launcher_runner() -> Path:
+    return launcher_sys_dir().parent / "run-in-deck-host.py"
+
+
+def is_launcher_surface() -> bool:
+    home = (HOME or "").lower()
+    title = (TITLE_ROOT or "").strip().upper()
+    return f":{LAUNCHER_PORT}" in home or title in (
+        "LAUNCH",
+        "ROM LAUNCHER",
+        "ROM CASES",
+    )
+
+
+def launcher_health_up() -> bool:
+    try:
+        urllib.request.urlopen(LAUNCHER_HEALTH, timeout=0.45)
+        return True
+    except Exception:
+        return False
+
+
+def focus_window_title(needle: str) -> bool:
+    """Bring an existing visible window whose title contains needle to the front."""
+    if sys.platform != "win32" or not needle:
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.windll.user32
+        found: list[int] = []
+        WNDENUMPROC = ctypes.WINFUNCTYPE(
+            ctypes.c_bool, wintypes.HWND, wintypes.LPARAM
+        )
+        want = needle.lower()
+
+        def _cb(hwnd, _lparam):
+            if not user32.IsWindowVisible(hwnd):
+                return True
+            buf = ctypes.create_unicode_buffer(512)
+            user32.GetWindowTextW(hwnd, buf, 512)
+            if want in (buf.value or "").lower():
+                found.append(int(hwnd))
+                return False
+            return True
+
+        user32.EnumWindows(WNDENUMPROC(_cb), 0)
+        if not found:
+            return False
+        hwnd = found[0]
+        user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+        user32.SetForegroundWindow(hwnd)
+        return True
+    except Exception:
+        return False
+
+
+def spawn_rom_launcher() -> bool:
+    runner = launcher_runner()
+    if not runner.is_file():
+        return False
+    kwargs: dict = {"cwd": str(runner.parent)}
+    if sys.platform == "win32":
+        cf = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        cf |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        kwargs["creationflags"] = cf
+    else:
+        kwargs["start_new_session"] = True
+    try:
+        subprocess.Popen([sys.executable, str(runner)], **kwargs)
+        return True
+    except OSError:
+        return False
+
+
+def wants_default_launcher(args: argparse.Namespace, manifest: dict) -> bool:
+    """Bare host: no URL/spawn/rom-dir/manifest → ROM Launcher is the product."""
+    if args.url or args.spawn or args.rom_dir:
+        return False
+    if manifest:
+        return False
+    return True
+
+
 def wait_for_url(url: str, timeout: float = 20.0) -> bool:
     """Poll until HTTP responds (any code short of connection failure)."""
     deadline = time.time() + timeout
@@ -827,7 +1966,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--url",
         default=os.environ.get("DECK_HOST_URL", "").strip() or None,
-        help="Entry URL (default: local launcher gate, or DECK_HOST_URL)",
+        help="Entry URL (default: ROM Launcher, or DECK_HOST_URL)",
     )
     p.add_argument(
         "--base",
@@ -957,7 +2096,14 @@ def main(argv: list[str] | None = None) -> None:
     cli_profile = any(
         a == "--profile" or str(a).startswith("--profile=") for a in argv_now
     )
+    default_launcher = wants_default_launcher(args, manifest)
     if (
+        default_launcher
+        and (not cli_profile)
+        and (not os.environ.get("DECK_HOST_PROFILE", "").strip())
+    ):
+        profile = "rail"
+    elif (
         (not cli_profile)
         and (not os.environ.get("DECK_HOST_PROFILE", "").strip())
         and manifest.get("profile")
@@ -966,6 +2112,8 @@ def main(argv: list[str] | None = None) -> None:
     apply_profile(profile)
     want_w = args.width
     want_h = args.height
+    if default_launcher and want_w is None and want_h is None:
+        want_w, want_h = 300, 800
     if want_w is None and manifest.get("width") is not None:
         try:
             want_w = int(manifest["width"])
@@ -1005,6 +2153,8 @@ def main(argv: list[str] | None = None) -> None:
         TITLE_ROOT = args.title.strip() or TITLE_ROOT
     elif manifest.get("title"):
         TITLE_ROOT = str(manifest.get("title") or "").strip() or TITLE_ROOT
+    elif default_launcher:
+        TITLE_ROOT = "LAUNCH"
     if args.base:
         BASE = args.base.rstrip("/")
 
@@ -1021,6 +2171,22 @@ def main(argv: list[str] | None = None) -> None:
             sys.exit(1)
     elif args.url:
         HOME = args.url
+    elif default_launcher:
+        launch_sys = launcher_sys_dir()
+        if (launch_sys / "server.py").is_file():
+            HOME = LAUNCHER_HTTP
+            if not args.spawn:
+                args.spawn = f"{sys.executable} server.py"
+                args.spawn_cwd = str(launch_sys)
+            if not args.health:
+                args.health = LAUNCHER_HEALTH
+            print(f"[deck-host] default product  ROM Launcher  {HOME}")
+        else:
+            print(
+                "[deck-host] ROM Launcher missing — falling back to gate page",
+                file=sys.stderr,
+            )
+            HOME = LAUNCHER
     else:
         HOME = LAUNCHER
 
@@ -1029,7 +2195,12 @@ def main(argv: list[str] | None = None) -> None:
         args.url if args.url and str(args.url).startswith("http") else None
     )
     if args.spawn:
+        global _spawn_command, _spawn_cwd, _health_url, _health_timeout
         cwd = Path(args.spawn_cwd).resolve() if args.spawn_cwd else HERE
+        _spawn_command = args.spawn
+        _spawn_cwd = cwd
+        _health_url = health
+        _health_timeout = float(args.health_timeout or 20)
         if not cwd.is_dir():
             print(f"[deck-host] spawn cwd missing: {cwd}", file=sys.stderr)
             sys.exit(1)
@@ -1072,6 +2243,28 @@ def main(argv: list[str] | None = None) -> None:
         "yes",
         "on",
     )
+    saved_desk = _load_layout().get("desk")
+    restore_desk: dict | None = None
+    if isinstance(saved_desk, dict) and not want_fs:
+        try:
+            rx, ry, rw, rh = _clamp_geom(
+                int(saved_desk.get("x", 0)),
+                int(saved_desk.get("y", 0)),
+                _as_pos_int(saved_desk.get("w")) or start_w,
+                _as_pos_int(saved_desk.get("h")) or start_h,
+            )
+            restore_desk = {
+                "x": rx,
+                "y": ry,
+                "w": rw,
+                "h": rh,
+                "maximized": bool(saved_desk.get("maximized")),
+            }
+            start_w, start_h = rw, rh
+            if restore_desk["maximized"] and _PROFILE != "companion":
+                want_max = True
+        except (TypeError, ValueError):
+            restore_desk = None
     win_kw: dict = {
         "title": TITLE_ROOT,
         "url": HOME,
@@ -1085,9 +2278,16 @@ def main(argv: list[str] | None = None) -> None:
         "resizable": True,
         "shadow": True,
         "js_api": api,
-        "maximized": want_max and not want_fs,
+        "maximized": False if restore_desk else (want_max and not want_fs),
     }
-    if want_max or want_fs:
+    if restore_desk:
+        win_kw["x"] = restore_desk["x"]
+        win_kw["y"] = restore_desk["y"]
+        api._restore_geom = restore_desk
+        api._normal_size = (restore_desk["w"], restore_desk["h"])
+        if restore_desk.get("maximized"):
+            api._start_maximized = True
+    elif want_max or want_fs:
         # Avoid random multi-monitor / off-origin spawn before maximize sticks
         win_kw["x"] = 0
         win_kw["y"] = 0
@@ -1108,9 +2308,9 @@ def main(argv: list[str] | None = None) -> None:
             win_kw.pop("y", None)
             window = webview.create_window(**win_kw)
     api.bind(window)
-    if _START_WINDOW_MODE == "maximized":
-        api._maximized = True
-        api._start_maximized = True
+    if _START_WINDOW_MODE == "maximized" or (restore_desk and restore_desk.get("maximized")):
+        api._maximized = bool(want_max)
+        api._start_maximized = bool(want_max)
     _attach_window_events(window, api)
     print(
         f"[deck-host] profile={_PROFILE}  "
@@ -1123,14 +2323,18 @@ def main(argv: list[str] | None = None) -> None:
         f"on_top={_ON_TOP}",
         flush=True,
     )
+    if restore_desk:
+        print(
+            f"[deck-host] restore desk {restore_desk['x']},{restore_desk['y']} "
+            f"{restore_desk['w']}x{restore_desk['h']}"
+            f"{' maximized' if restore_desk.get('maximized') else ''}",
+            flush=True,
+        )
 
     menu_items = [
-        webview.menu.MenuAction("Home", lambda: api.home()),
-        webview.menu.MenuAction("New window", lambda: spawn_deck_window()),
+        webview.menu.MenuAction("Deck", lambda: api.open_deck()),
         webview.menu.MenuAction("Reload", lambda: api.reload()),
-        webview.menu.MenuAction("Hard refresh", lambda: api.hard_refresh()),
-        webview.menu.MenuAction("Back", lambda: window.evaluate_js("history.back()")),
-        webview.menu.MenuAction("Forward", lambda: window.evaluate_js("history.forward()")),
+        webview.menu.MenuAction("Restart server", lambda: api.hard_refresh()),
         webview.menu.MenuAction("Minimize", lambda: api.minimize()),
         webview.menu.MenuAction("Maximize", lambda: api.toggle_maximize()),
         webview.menu.MenuAction("Close", lambda: api.close()),
@@ -1176,8 +2380,8 @@ if __name__ == "__main__":
     )
     if _FRAMELESS:
         print(
-            "  caption: gem menu / Alt+M / Ctrl+N new / drag / size / "
-            "Ctrl+/- zoom / F11 deep / Esc surface"
+            "  caption: gem Deck/Reload/Exit · Alt+M · min/max/close · "
+            "Ctrl+/- zoom · deep/F11 opt-in per ROM"
         )
     print("  profiles: desk / datbox / office / companion/rail")
     if not CAPTION_JS.is_file():

@@ -5,10 +5,7 @@
 =================================================
 ```
 
-**The Deck Host** runs pocket **ROMs** as desktop programs.
-
-Point it at a ROM. Package it. Double-click.  
-The host is the chrome; **your ROM** is the product.
+**The Deck Host** is the window runtime. **ROM Launcher** is the default product — install once, seat carts, click a case.
 
 ### Who it’s for
 
@@ -16,32 +13,29 @@ Anyone building **ROMs** — compact tools and surfaces meant to feel like their
 
 ### What you get
 
-- A dedicated **window** for your ROM  
-- A path to **ship one ROM as one install** — your files + this runtime, one icon  
-- Room later for a **ROM deck** (many ROMs on one host) if you want that shape  
+- A dedicated **window** for each ROM
+- **ROM Launcher** as the start menu / server manager
+- A shelf to **seat** carts (`%LOCALAPPDATA%/DeckHost/roms`)
+- A fallback path to ship **one ROM as one itch package**
 
-### What it does not do
+### Chrome
 
-- It does not replace your ROM’s own data, settings, or logic  
-- It does not require the operator to keep a separate server console open for normal use  
-- It is not tied to a single studio or title — any ROM can wear it  
+The host is a thin window (min / max / close). Deep, snap-size, and browser doors are **opt-in** per ROM. See [docs/ship-model.md](docs/ship-model.md).
 
 ### Layout
 
 | Path | Role |
 |------|------|
 | `shell/` | Window runtime |
+| `rom-launcher/` | Default product (cases) |
 | `docs/` | Maker notes |
 
-### Status
-
-Island open. **Shell stage 1** is in `shell/` (reworked from the old pocket-browser; originals kept in `shell/from-mypi/` and on the myPI tree).
+### Run
 
 ```bat
 cd shell
 pip install -r requirements.txt
-python deck_host.py --url http://127.0.0.1:42929/
-python deck_host.py --profile companion --url http://127.0.0.1:43111/
+python deck_host.py
 ```
 
-**Profiles:** `desk` (DATBOX ROMs ~960×520, two stack on 1080p) · `companion` / `rail` (tall Time Machina strip ~368×740).
+**Profiles:** `desk` (~1024×768) · `datbox` (short bags ~960×520) · `office` (wide docs) · `companion` / `rail` (Launcher + Machina strip).

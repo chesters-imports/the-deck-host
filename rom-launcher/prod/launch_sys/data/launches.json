@@ -2,7 +2,7 @@
   "schema": "rom-launcher.v1",
   "sku": "CO.HOST-001-LAUNCH",
   "title": "ROM Launcher",
-  "whisper": "start menu for the deck \u00b7 cases on the table \u00b7 identity from ROM Cat",
+  "whisper": "start menu for the deck · cases on the table · identity from ROM Cat",
   "notes": "Recipes are launch mechanics only (run_script, port, broken, coming_soon). Names, chip codes, descriptions live in dewey-catalog-co/rom-cat catalog.json.",
   "recipes": {
     "romcat": {
@@ -60,6 +60,10 @@
     "ava-desk": {
       "run_script": "le-awn-industries/el-desks-for-her/ava-desk/prod/run-in-deck-host.py",
       "port": 43171
+    },
+    "key-desk": {
+      "run_script": "le-awn-industries/el-desks-for-her/key-desk/prod/run-in-deck-host.py",
+      "port": 43172
     },
     "kde-notes-chords": {
       "run_script": "charlies-toys/kde-notes-chords/prod/run-in-deck-host.py",
@@ -125,15 +129,34 @@
       "run_script": "charlies-toys/kde-kitten-detective/prod/run-in-deck-host.py",
       "port": 43142
     },
+    "memory-deck-builder": {
+      "run_script": "charlies-toys/memory-deck-builder/prod/run-in-deck-host.py",
+      "port": 43173
+    },
+    "em-translation-bench": {
+      "run_script": "le-awn-industries/em-translation-bench/prod/run-in-deck-host.py",
+      "port": 43174
+    },
     "cat-o-vens": {
       "coming_soon": true
     },
     "dos": {
       "coming_soon": true
     },
+    "world-studio": {
+      "run_script": "world-builder-studios/wbs/prod/run-in-deck-host.py"
+    },
     "hermes": {
       "run_script": "charlies-toys/hermes/prod/run-in-deck-host.py",
       "port": 43169
+    },
+    "sticky-cat": {
+      "run_script": "dewey-catalog-co/cat-o-roms/prod/run-in-deck-host.py",
+      "port": 43130
+    },
+    "cat-o-roms": {
+      "run_script": "dewey-catalog-co/cat-o-roms/prod/run-in-deck-host.py",
+      "port": 43130
     }
   }
 }

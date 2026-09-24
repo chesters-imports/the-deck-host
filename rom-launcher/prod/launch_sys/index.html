@@ -10,35 +10,42 @@
   <!-- cart plastic: ONE file with ROM Cat (not a forked copy in app.css) -->
   <link rel="stylesheet" href="/rom-cart-face.css" />
   <link rel="stylesheet" href="/app.css" />
+  <script>
+    (function () {
+      try {
+        var id = localStorage.getItem("deck-launcher-shell") || "base";
+        document.documentElement.setAttribute("data-launcher-shell", id);
+        if (id !== "base") {
+          var l = document.createElement("link");
+          l.id = "launcher-shell-dsc";
+          l.rel = "stylesheet";
+          l.href = "/skins/launcher-" + id + ".dsc";
+          document.head.appendChild(l);
+        }
+      } catch (e) {}
+    })();
+  </script>
 </head>
 <body class="rl">
-  <header class="rl-chrome" data-deck-chrome>
+  <header class="rl-chrome" data-deck-chrome data-deck-drag-root data-deck-controls="min,max,close">
     <span class="rl-chip" data-deck-menu>DECK<strong>HOST</strong></span>
     <span class="rl-drag" data-deck-drag title="ROM Launcher">LAUNCH</span>
     <div class="rl-win" data-deck-window-controls></div>
   </header>
 
-  <div class="rl-hero">
+  <div class="rl-hero" data-deck-drag title="drag window">
     <!-- deep mode: caption hidden — title is the drag handle (REQ-007-CHG01) -->
     <h1 class="rl-title" data-deck-drag title="drag window · deep mode handle">ROM CASES</h1>
     <div class="rl-hero-actions">
+      <button type="button" class="rl-unstick" id="btnInstall" title="Seat a .rom cart onto the shelf">INSTALL</button>
       <button type="button" class="rl-unstick" id="btnUnstick" title="Kill stuck ROM server.py / free ports (keeps this launcher)">UNSTICK</button>
       <button type="button" class="rl-refresh" id="btnRefresh" title="refresh">↻</button>
     </div>
   </div>
 
-  <nav class="rl-tabs" role="tablist" aria-label="Case shelves">
-    <button type="button" class="rl-tab is-on" role="tab" id="tabLive" data-tab="live" aria-selected="true">
-      LIVE <span class="rl-tab-n" id="nLive">0</span>
-    </button>
-    <button type="button" class="rl-tab" role="tab" id="tabSoon" data-tab="soon" aria-selected="false">
-      SOON <span class="rl-tab-n" id="nSoon">0</span>
-    </button>
-  </nav>
-
   <p class="rl-sub" id="sub">loading…</p>
 
-  <main class="rl-grid" id="grid" aria-label="ROM cases"></main>
+  <main class="rl-grid" id="grid" aria-label="ROM cases by maker"></main>
 
   <footer class="rl-foot">
     <span>CO.HOST-001-LAUNCH</span>

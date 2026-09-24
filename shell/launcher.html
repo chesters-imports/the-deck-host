@@ -2,24 +2,21 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>The Deck Host — gate</title>
+  <title>The Deck Host — Launcher missing</title>
   <style>
     :root {
       --bg: #0a0c12;
-      --panel: #12151e;
       --ink: #d8dee8;
       --dim: #6a7a9a;
       --accent: #6a8cff;
-      --line: #2a3048;
     }
-    * { box-sizing: border-box; }
     body {
       margin: 0;
       min-height: 100vh;
       font-family: "Segoe UI", system-ui, sans-serif;
       background: radial-gradient(ellipse at top, #151a28 0%, var(--bg) 55%);
       color: var(--ink);
-      padding: 2.5rem 1.5rem 3rem;
+      padding: 2.5rem 1.5rem;
     }
     h1 {
       font-weight: 600;
@@ -27,68 +24,22 @@
       font-size: 0.85rem;
       text-transform: uppercase;
       color: var(--accent);
-      margin: 0 0 0.35rem;
     }
-    .sub {
-      color: var(--dim);
-      font-size: 0.95rem;
-      max-width: 36rem;
-      line-height: 1.45;
-      margin-bottom: 2rem;
-    }
-    .grid {
-      display: grid;
-      gap: 0.75rem;
-      max-width: 28rem;
-    }
-    a.door {
-      display: block;
-      padding: 0.9rem 1.1rem;
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      color: var(--ink);
-      text-decoration: none;
-      transition: border-color 0.15s, background 0.15s;
-    }
-    a.door:hover {
-      border-color: var(--accent);
-      background: #1a2030;
-    }
-    a.door strong {
-      display: block;
-      color: var(--accent);
-      font-size: 0.95rem;
-      margin-bottom: 0.2rem;
-    }
-    a.door span {
-      font-size: 0.8rem;
-      color: var(--dim);
-    }
-    .note {
-      margin-top: 2rem;
-      font-size: 0.75rem;
-      color: var(--dim);
-      max-width: 28rem;
-      line-height: 1.4;
-    }
+    p { color: var(--dim); max-width: 36rem; line-height: 1.45; }
     code { color: #9ab0ff; }
   </style>
 </head>
 <body>
   <h1>The Deck Host</h1>
-  <p class="sub">
-    Runtime gate only. ROMs live in their own projects and call The Deck Host with
-    <code>--url</code> and optional <code>--spawn</code>. This host does not store ROM files.
+  <p>
+    ROM Launcher did not start. The default product lives at
+    <code>the-deck-host/rom-launcher</code>. Run
+    <code>python deck_host.py</code> from a full island checkout, or
+    <code>rom-launcher/prod/run-launcher.bat</code>.
   </p>
-  <div class="grid">
-    <a class="door" href="#" onclick="return false;">
-      <strong>No ROMs bundled here</strong>
-      <span>Launch from the ROM island (e.g. loreBOX prod/run-loreBOX.bat)</span>
-    </a>
-  </div>
-  <p class="note">
-    Example: <code>python deck_host.py --url http://127.0.0.1:PORT/ --spawn "python server.py" --spawn-cwd path\to\rom</code>
+  <p>
+    A single cart still opens with <code>--url</code>, <code>--spawn</code>,
+    or <code>--rom-dir</code>.
   </p>
 </body>
 </html>

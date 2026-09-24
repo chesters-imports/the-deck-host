@@ -26,8 +26,7 @@ def main() -> int:
         return 1
     # Rail/companion strip — tiny carts want a vertical start bar, not a full desk
     profile = os.environ.get("LAUNCHER_PROFILE", "rail").strip() or "rail"
-    # Rail: wide enough that 2 teeny carts tile (not one lonely column)
-    # cart ~5.5rem + gaps + padding ≈ 220–260px minimum; 300 sits two-up clean
+    # Rail: three teeny carts across (~5rem + gaps). 300 sits 3-up.
     w = os.environ.get(
         "LAUNCHER_WIDTH",
         "300" if profile in ("rail", "companion") else "960",

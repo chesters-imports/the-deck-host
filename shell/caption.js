@@ -2,10 +2,10 @@
  * Frameless The Deck Host caption — injected after each page load.
  * Under document.body so pywebview drag sees .pywebview-drag-region.
  *
- * Zoom: Ctrl+= / Ctrl+- / Ctrl+0  (page zoom, persisted)
- * Deep: F11 or doors “Go deep” — hide caption, full surface; Esc / F11 exit
+ * Host always: min / max / close · Deck (Launcher) · Reload · Hard refresh · Exit
+ * Opt-in via data-deck-controls: deep (F11) · step / step_size
+ * Zoom: Ctrl+= / Ctrl+- / Ctrl+0  (keyboard, persisted — not a chrome product)
  * Doors: left gem mark · Alt+M / Ctrl+K
- * New window: Ctrl+N
  */
 (function (title, heightPx) {
   var TITLE = title || "deck host";
@@ -16,23 +16,21 @@
   var LS_ZOOM = "deck-host-zoom";
   var LS_DEEP = "deck-host-deep";
 
-  // Host chrome only — ROM navigation is the loaded surface's job
+  // Thin host menu. Back / Forward / New window / deep / snap are ROM opt-in.
   var DOORS = [
-    { label: "Home", path: null, action: "home" },
+    { label: "Deck", action: "deck" },
     { sep: true },
-    { label: "Hard refresh", action: "hard_refresh" },
     { label: "Reload", action: "reload" },
-    { label: "Back", action: "back" },
-    { label: "Forward", action: "forward" },
-    { sep: true },
-    { label: "New window", action: "new_window" },
+    { label: "Restart server", action: "hard_refresh" },
   ];
+  var DEFAULT_CONTROLS = ["min", "max", "close"];
 
   /**
    * ROMs may fully replace doors with window.DECK_ROM_MENU = [
-   *   { label|labelFn, action?, run?, sep? }, …
+   *   { label|labelFn, action?, run?, sep?, items? }, …
    * ]
    * When set, DECK_ROM_MENU_EXTRAS is ignored (put everything in DECK_ROM_MENU).
+   * Folders: { label, items: [ … ] } — click opens a cascade. run/action close the menu.
    */
   function doorsList() {
     var rom = window.DECK_ROM_MENU;
@@ -44,8 +42,165 @@
     return !!(window.DECK_ROM_MENU && window.DECK_ROM_MENU.length);
   }
 
+  function chromeAllowList() {
+    var chrome = document.querySelector("[data-deck-chrome]");
+    var slot = document.querySelector("[data-deck-window-controls]");
+    var raw = (
+      (slot && slot.getAttribute("data-deck-controls")) ||
+      (chrome && chrome.getAttribute("data-deck-controls")) ||
+      ""
+    )
+      .trim()
+      .toLowerCase();
+    if (raw) return raw.split(/[\s,]+/).filter(Boolean);
+    return DEFAULT_CONTROLS.slice();
+  }
+
+  function chromeHas(name) {
+    var allow = chromeAllowList();
+    if (name === "step") {
+      return allow.indexOf("step") >= 0 || allow.indexOf("step_size") >= 0;
+    }
+    return allow.indexOf(name) >= 0;
+  }
+
+  function deepAllowed() {
+    return chromeHas("deep");
+  }
+
   function api() {
     return window.pywebview && window.pywebview.api;
+  }
+
+  function bindFramelessResize() {
+    var a = api();
+    if (!a || typeof a.resize !== "function") return;
+    if (document.getElementById("deck-host-resize")) return;
+
+    var minW = 320;
+    var minH = 240;
+    var dirs = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
+    var box = document.createElement("div");
+    box.id = "deck-host-resize";
+    box.setAttribute("aria-hidden", "true");
+    for (var i = 0; i < dirs.length; i++) {
+      var el = document.createElement("div");
+      el.className = "dh-resize dh-resize-" + dirs[i];
+      el.dataset.dir = dirs[i];
+      box.appendChild(el);
+    }
+    (document.body || document.documentElement).appendChild(box);
+
+    var romGrip = document.querySelector(".sheet-resize");
+    if (romGrip) romGrip.setAttribute("hidden", "");
+
+    if (!document.getElementById("deck-host-resize-css")) {
+      var style = document.createElement("style");
+      style.id = "deck-host-resize-css";
+      style.textContent =
+        "#deck-host-resize{position:fixed;inset:0;z-index:2147483003;pointer-events:none}" +
+        "#deck-host-resize .dh-resize{" +
+        "position:absolute;pointer-events:auto;-webkit-app-region:no-drag;background:transparent}" +
+        "#deck-host-resize .dh-resize-n,#deck-host-resize .dh-resize-s{" +
+        "left:10px;right:10px;height:6px}" +
+        "#deck-host-resize .dh-resize-n{top:0;cursor:ns-resize}" +
+        "#deck-host-resize .dh-resize-s{bottom:0;cursor:ns-resize}" +
+        "#deck-host-resize .dh-resize-e,#deck-host-resize .dh-resize-w{" +
+        "top:10px;bottom:10px;width:6px}" +
+        "#deck-host-resize .dh-resize-e{right:0;cursor:ew-resize}" +
+        "#deck-host-resize .dh-resize-w{left:0;cursor:ew-resize}" +
+        "#deck-host-resize .dh-resize-ne,#deck-host-resize .dh-resize-nw," +
+        "#deck-host-resize .dh-resize-se,#deck-host-resize .dh-resize-sw{" +
+        "width:14px;height:14px}" +
+        "#deck-host-resize .dh-resize-ne{top:0;right:0;cursor:nesw-resize}" +
+        "#deck-host-resize .dh-resize-nw{top:0;left:0;cursor:nwse-resize}" +
+        "#deck-host-resize .dh-resize-sw{bottom:0;left:0;cursor:nesw-resize}" +
+        "#deck-host-resize .dh-resize-se{" +
+        "right:0;bottom:0;cursor:nwse-resize;" +
+        "background:linear-gradient(135deg,transparent 46%,currentColor 46%);" +
+        "opacity:.4;color:currentColor}" +
+        "#deck-host-resize .dh-resize-se:hover{opacity:.85}" +
+        "html.deck-host-www-menu #deck-host-resize .dh-resize-se{color:#5a4838}";
+      document.head.appendChild(style);
+    }
+
+    var drag = null;
+    var pending = null;
+    var tick = 0;
+
+    function sizeNow() {
+      return {
+        w: window.outerWidth || document.documentElement.clientWidth || 640,
+        h: window.outerHeight || document.documentElement.clientHeight || 480,
+        x: window.screenX,
+        y: window.screenY,
+      };
+    }
+
+    function flush(e) {
+      if (!drag || !e) return;
+      var dx = e.screenX - drag.px;
+      var dy = e.screenY - drag.py;
+      var w = drag.w;
+      var h = drag.h;
+      var x = drag.wx;
+      var y = drag.wy;
+      var dir = drag.dir;
+      if (dir.indexOf("e") >= 0) w = drag.w + dx;
+      if (dir.indexOf("s") >= 0) h = drag.h + dy;
+      if (dir.indexOf("w") >= 0) {
+        w = Math.max(minW, drag.w - dx);
+        x = drag.wx + (drag.w - w);
+      }
+      if (dir.indexOf("n") >= 0) {
+        h = Math.max(minH, drag.h - dy);
+        y = drag.wy + (drag.h - h);
+      }
+      w = Math.max(minW, Math.round(w));
+      h = Math.max(minH, Math.round(h));
+      var spec = w + "x" + h;
+      if (dir.indexOf("w") >= 0 || dir.indexOf("n") >= 0) {
+        spec += "@" + Math.round(x) + "," + Math.round(y);
+      }
+      try {
+        a.resize(spec);
+      } catch (err) {}
+    }
+
+    box.addEventListener("pointerdown", function (e) {
+      var dir = e.target && e.target.dataset && e.target.dataset.dir;
+      if (!dir || e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var now = sizeNow();
+      drag = {
+        dir: dir,
+        px: e.screenX,
+        py: e.screenY,
+        w: now.w,
+        h: now.h,
+        wx: now.x,
+        wy: now.y,
+      };
+      try {
+        e.target.setPointerCapture(e.pointerId);
+      } catch (err) {}
+    });
+    box.addEventListener("pointermove", function (e) {
+      if (!drag) return;
+      pending = e;
+      if (tick) return;
+      tick = requestAnimationFrame(function () {
+        tick = 0;
+        flush(pending);
+      });
+    });
+    function stopDrag() {
+      drag = null;
+      pending = null;
+    }
+    box.addEventListener("pointerup", stopDrag);
+    box.addEventListener("pointercancel", stopDrag);
   }
 
   function readZoom() {
@@ -68,7 +223,12 @@
     z = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
     z = Math.round(z * 100) / 100;
     document.documentElement.style.setProperty("--deck-page-zoom", String(z));
-    document.documentElement.style.zoom = String(z);
+    // WebView2 paints a black band if html { zoom } is set, even to 1.
+    if (z === 1) {
+      document.documentElement.style.removeProperty("zoom");
+    } else {
+      document.documentElement.style.zoom = String(z);
+    }
     writeZoom(z);
     var lab = document.querySelector("#deck-host-caption .dh-cap-zoom");
     if (lab) lab.textContent = Math.round(z * 100) + "%";
@@ -148,8 +308,8 @@
     var large = parsed.mode === "expanded";
     btn.textContent = large ? "⤡" : "⤢";
     btn.title = large
-      ? "Window · Standard size"
-      : "Window · Expanded size";
+      ? "Window · snap to standard size"
+      : "Window · snap to expanded size";
   }
 
   function flashSizeHint(s) {
@@ -241,6 +401,7 @@
   }
 
   function toggleDeep() {
+    if (!isDeep() && !deepAllowed()) return;
     setDeep(!isDeep());
   }
 
@@ -302,9 +463,9 @@
       } catch (err) {}
       return;
     }
-    if (item.action === "home") {
-      if (a && a.home) a.home();
-      else location.reload();
+    if (item.action === "deck" || item.action === "home") {
+      if (a && a.open_deck) a.open_deck();
+      else if (a && a.home) a.home();
       return;
     }
     if (item.action === "zoom_reset") {
@@ -364,11 +525,134 @@
 
   function closeMenu() {
     var m = document.getElementById("deck-host-menu");
-    if (m) m.hidden = true;
+    if (m) {
+      closeChildFolders(m);
+      m.hidden = true;
+    }
     syncMenuMark();
   }
 
-  /** ROMs may set window.DECK_ROM_MENU_EXTRAS = [{ label|labelFn, run }] */
+  function itemLabel(item) {
+    if (!item) return "…";
+    if (typeof item.labelFn === "function") {
+      try {
+        return item.labelFn() || "…";
+      } catch (e) {
+        return item.label || "…";
+      }
+    }
+    return item.label || "…";
+  }
+
+  function closeChildFolders(parentBox) {
+    if (!parentBox || !parentBox.children) return;
+    var kids = Array.prototype.slice.call(parentBox.children);
+    for (var i = 0; i < kids.length; i++) {
+      var el = kids[i];
+      if (el.classList && el.classList.contains("dh-submenu")) {
+        closeChildFolders(el);
+        if (el.parentNode) el.parentNode.removeChild(el);
+      } else if (el.tagName === "BUTTON" && el.classList.contains("dh-menu-folder")) {
+        el.setAttribute("aria-expanded", "false");
+      }
+    }
+  }
+
+  function toggleFolder(btn, item, parentBox) {
+    var open = btn.getAttribute("aria-expanded") === "true";
+    closeChildFolders(parentBox);
+    if (open) return;
+    var sub = document.createElement("div");
+    sub.className = "dh-submenu";
+    sub.setAttribute("role", "menu");
+    sub.setAttribute("data-deck-submenu", "1");
+    (item.items || []).forEach(function (child) {
+      appendMenuEntry(sub, child, false);
+    });
+    var pos = "relative";
+    try {
+      pos = window.getComputedStyle(parentBox).position;
+    } catch (e) {}
+    if (!pos || pos === "static") parentBox.style.position = "relative";
+    var vw = window.innerWidth || 640;
+    var rail = vw < 480;
+    if (rail) {
+      sub.classList.add("is-down");
+      if (btn.nextSibling) parentBox.insertBefore(sub, btn.nextSibling);
+      else parentBox.appendChild(sub);
+    } else {
+      sub.style.position = "absolute";
+      sub.style.left = "100%";
+      sub.style.right = "auto";
+      sub.style.marginLeft = "-1px";
+      sub.style.zIndex = "3";
+      parentBox.appendChild(sub);
+      var top = btn.offsetTop || 0;
+      try {
+        var br = btn.getBoundingClientRect();
+        var pr = parentBox.getBoundingClientRect();
+        top = Math.round(br.top - pr.top);
+      } catch (e2) {}
+      sub.style.top = top + "px";
+      try {
+        var box = sub.getBoundingClientRect();
+        if (box.right > vw - 8) {
+          sub.style.left = "auto";
+          sub.style.right = "100%";
+          sub.style.marginLeft = "0";
+          sub.style.marginRight = "-1px";
+        }
+      } catch (e3) {}
+    }
+    btn.setAttribute("aria-expanded", "true");
+  }
+
+  function appendMenuEntry(box, item, extraMark) {
+    if (!box || !item) return;
+    if (item.sep) {
+      var sep = document.createElement("div");
+      sep.className = "dh-menu-sep";
+      if (extraMark) sep.setAttribute("data-deck-rom-extra", "1");
+      box.appendChild(sep);
+      return;
+    }
+    var b = document.createElement("button");
+    b.type = "button";
+    b.setAttribute("role", "menuitem");
+    if (extraMark) b.setAttribute("data-deck-rom-extra", "1");
+    var folder = !!(item.items && item.items.length);
+    if (folder) {
+      b.className = "dh-menu-folder";
+      b.setAttribute("aria-haspopup", "true");
+      b.setAttribute("aria-expanded", "false");
+      var lab = document.createElement("span");
+      lab.textContent = itemLabel(item);
+      var caret = document.createElement("span");
+      caret.className = "dh-menu-caret";
+      caret.setAttribute("aria-hidden", "true");
+      caret.textContent = "▸";
+      b.appendChild(lab);
+      b.appendChild(caret);
+      b.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleFolder(b, item, box);
+      });
+    } else {
+      b.textContent = itemLabel(item);
+      b.addEventListener("click", function (e) {
+        e.preventDefault();
+        closeMenu();
+        try {
+          if (typeof item.run === "function") item.run();
+          else runDoor(item);
+        } catch (err) {}
+      });
+    }
+    box.appendChild(b);
+  }
+
+  /** ROMs may set window.DECK_ROM_MENU_EXTRAS = [{ label|labelFn, run, items? }] */
   function appendRomMenuExtras(menu) {
     if (!menu || romOwnsMenu()) return;
     // clear previous extras (rebuild-safe)
@@ -381,30 +665,42 @@
     sep.setAttribute("data-deck-rom-extra", "1");
     menu.appendChild(sep);
     extras.forEach(function (item) {
-      if (!item || item.sep) {
-        var s2 = document.createElement("div");
-        s2.className = "dh-menu-sep";
-        s2.setAttribute("data-deck-rom-extra", "1");
-        menu.appendChild(s2);
-        return;
-      }
-      var b = document.createElement("button");
-      b.type = "button";
-      b.setAttribute("role", "menuitem");
-      b.setAttribute("data-deck-rom-extra", "1");
-      b.textContent =
-        typeof item.labelFn === "function"
-          ? item.labelFn()
-          : item.label || "…";
-      b.addEventListener("click", function (e) {
-        e.preventDefault();
-        closeMenu();
-        try {
-          if (typeof item.run === "function") item.run();
-        } catch (err) {}
-      });
-      menu.appendChild(b);
+      appendMenuEntry(menu, item, true);
     });
+  }
+
+  function listHasExit(items) {
+    if (!items || !items.length) return false;
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      if (!it) continue;
+      if (it.action === "exit" || it.action === "close") return true;
+      if (/^exit$/i.test(String(it.label || ""))) return true;
+      if (it.items && listHasExit(it.items)) return true;
+    }
+    return false;
+  }
+
+  function menuHasExit() {
+    var extras = window.DECK_ROM_MENU_EXTRAS;
+    return listHasExit(doorsList()) || listHasExit(extras);
+  }
+
+  function appendExit(menu) {
+    if (!menu || menuHasExit()) return;
+    var sep = document.createElement("div");
+    sep.className = "dh-menu-sep";
+    menu.appendChild(sep);
+    var b = document.createElement("button");
+    b.type = "button";
+    b.setAttribute("role", "menuitem");
+    b.textContent = "Exit";
+    b.addEventListener("click", function (e) {
+      e.preventDefault();
+      closeMenu();
+      runDoor({ action: "exit" });
+    });
+    menu.appendChild(b);
   }
 
   function clearMenuItems(menu) {
@@ -420,27 +716,10 @@
     if (!menu) return;
     clearMenuItems(menu);
     doorsList().forEach(function (item) {
-      if (item && item.sep) {
-        var sep = document.createElement("div");
-        sep.className = "dh-menu-sep";
-        menu.appendChild(sep);
-        return;
-      }
-      var b = document.createElement("button");
-      b.type = "button";
-      b.setAttribute("role", "menuitem");
-      b.textContent =
-        item && typeof item.labelFn === "function"
-          ? item.labelFn()
-          : (item && item.label) || "…";
-      b.addEventListener("click", function (e) {
-        e.preventDefault();
-        closeMenu();
-        runDoor(item);
-      });
-      menu.appendChild(b);
+      appendMenuEntry(menu, item, false);
     });
     appendRomMenuExtras(menu);
+    appendExit(menu);
   }
 
   function refreshRomMenuExtras() {
@@ -492,7 +771,7 @@
       "color:#d8dee8;background:#0a0c12;" +
       "border-bottom:1px solid rgba(120,140,200,.35);" +
       "box-shadow:0 2px 12px rgba(0,0,0,.45);" +
-      "user-select:none;-webkit-user-select:none}" +
+      "user-select:none!important;-webkit-user-select:none!important}" +
       "#deck-host-caption[hidden]{display:none!important;height:0!important;min-height:0!important;border:0!important}" +
       "#deck-host-caption .dh-cap-drag{" +
       "flex:1;display:flex;align-items:center;gap:8px;" +
@@ -549,7 +828,7 @@
       "position:fixed;top:" +
       H +
       "px;left:0;min-width:220px;max-width:min(320px,90vw);" +
-      "z-index:2147483001;margin:0;padding:6px 0;" +
+      "z-index:2147483001;margin:0;padding:6px 0;overflow:visible;" +
       "background:#12151e;border:1px solid rgba(120,140,200,.3);" +
       "border-top:none;box-shadow:0 12px 32px rgba(0,0,0,.55);" +
       "font-family:system-ui,Segoe UI,sans-serif;font-size:13px;color:#e4e8f0}" +
@@ -564,6 +843,28 @@
       "#deck-host-menu .dh-menu-hint{" +
       "padding:6px 14px 4px;font-size:10px;letter-spacing:.08em;" +
       "text-transform:uppercase;opacity:.45}" +
+      "#deck-host-menu .dh-menu-folder{" +
+      "display:flex;align-items:center;justify-content:space-between;gap:12px}" +
+      "#deck-host-menu .dh-menu-caret{" +
+      "opacity:.55;font-size:11px;padding-left:8px}" +
+      "#deck-host-menu .dh-submenu{" +
+      "position:absolute;left:100%;top:0;margin-left:-1px;min-width:10.5rem;" +
+      "z-index:2;padding:6px 0;" +
+      "background:#12151e;border:1px solid rgba(120,140,200,.3);" +
+      "box-shadow:0 12px 32px rgba(0,0,0,.55);" +
+      "font:inherit;color:inherit}" +
+      "#deck-host-menu .dh-submenu.is-down," +
+      "html.deck-host-integrated #deck-host-menu .dh-submenu.is-down{" +
+      "position:relative;left:auto;right:auto;top:auto;margin:2px 8px 6px;" +
+      "min-width:0;width:auto;box-shadow:none}" +
+      "#deck-host-menu .dh-submenu button{" +
+      "display:block;width:100%;text-align:left;border:0;background:transparent;" +
+      "color:inherit;padding:8px 14px;cursor:pointer;font:inherit}" +
+      "#deck-host-menu .dh-submenu button:hover," +
+      "#deck-host-menu .dh-submenu button:focus{" +
+      "background:rgba(106,140,255,.18);outline:none}" +
+      "#deck-host-menu .dh-submenu .dh-menu-sep{" +
+      "height:1px;margin:6px 10px;background:rgba(120,140,200,.2)}" +
       "#deck-host-deep-hint{" +
       "position:fixed!important;top:8px!important;bottom:auto!important;" +
       "left:50%!important;right:auto!important;" +
@@ -628,21 +929,18 @@
     slot.setAttribute("data-deck-filled", "1");
     slot.classList.add("dh-cap-btns");
 
-    // ROM may restrict controls: data-deck-controls="min,close" on the slot
-    // or parent [data-deck-chrome]. Default = full desk set.
-    var chrome = document.querySelector("[data-deck-chrome]");
-    var raw =
-      (slot.getAttribute("data-deck-controls") ||
-        (chrome && chrome.getAttribute("data-deck-controls")) ||
-        "")
-        .trim()
-        .toLowerCase();
-    var allow = raw
-      ? raw.split(/[\s,]+/).filter(Boolean)
-      : ["deep", "step", "step_size", "min", "max", "close"];
+    // ROM may add controls: data-deck-controls="deep,min,max,close" on the slot
+    // or parent [data-deck-chrome]. Default = thin window (min, max, close).
     function has(name) {
-      if (name === "step") return allow.indexOf("step") >= 0 || allow.indexOf("step_size") >= 0;
-      return allow.indexOf(name) >= 0;
+      var raw = (slot.getAttribute("data-deck-controls") || "").trim().toLowerCase();
+      if (raw) {
+        var allow = raw.split(/[\s,]+/).filter(Boolean);
+        if (name === "step") {
+          return allow.indexOf("step") >= 0 || allow.indexOf("step_size") >= 0;
+        }
+        return allow.indexOf(name) >= 0;
+      }
+      return chromeHas(name);
     }
 
     if (has("deep")) {
@@ -662,7 +960,7 @@
     }
     if (has("step")) {
       slot.appendChild(
-        mkWinBtn("step_size", "⤢", "Window · step size", "mag-btn")
+        mkWinBtn("step_size", "⤢", "Window · snap standard / expanded", "mag-btn")
       );
     }
     if (has("min")) {
@@ -681,6 +979,45 @@
     }
   }
 
+  function dragEventElement(e) {
+    var t = e.target;
+    if (t && t.nodeType === 3) t = t.parentElement;
+    return t || null;
+  }
+
+  function inDragBar(t) {
+    if (!t || !t.closest) return false;
+    if (
+      t.closest(
+        "button, a, input, textarea, select, option, label, [contenteditable='true'], [data-deck-menu], [data-deck-window-controls]"
+      )
+    )
+      return false;
+    return !!t.closest(
+      "[data-deck-drag], .pywebview-drag-region, .wwwExplorer_windowTitleBar, .dh-cap-drag, #deck-host-caption"
+    );
+  }
+
+  function armDragSelectGuard() {
+    if (document.documentElement.getAttribute("data-deck-drag-guard") === "1") return;
+    document.documentElement.setAttribute("data-deck-drag-guard", "1");
+    document.addEventListener(
+      "selectstart",
+      function (e) {
+        if (inDragBar(dragEventElement(e))) e.preventDefault();
+      },
+      true
+    );
+    document.addEventListener(
+      "mousedown",
+      function (e) {
+        if (e.button !== 0) return;
+        if (inDragBar(dragEventElement(e))) e.preventDefault();
+      },
+      true
+    );
+  }
+
   /**
    * ROM owns the top bar entirely. Host only:
    *  - fills [data-deck-window-controls] with min/max/close/…
@@ -696,12 +1033,21 @@
       "deck-host-frameless",
       "deck-host-integrated"
     );
+    if (chrome.classList.contains("wwwExplorer_chrome")) {
+      document.documentElement.classList.add("deck-host-www-menu");
+    }
     if (document.body) {
       document.body.classList.add("deck-host-frameless", "deck-host-integrated");
+      if (chrome.classList.contains("wwwExplorer_chrome")) {
+        document.body.classList.add("deck-host-www-menu");
+      }
     }
 
-    // Never inject #deck-host-caption — ROM chrome stays as-designed
+    // Never inject #deck-host-caption — ROM chrome stays as-designed.
+    // Drop a leftover host bar from an earlier inject (about:blank / race).
     chrome.setAttribute("data-deck-integrated", "1");
+    var leftover = document.getElementById("deck-host-caption");
+    if (leftover && leftover.parentNode) leftover.parentNode.removeChild(leftover);
 
     // Prefer whole chrome as drag root (companion rails need a big grab zone).
     // Interactive bits use -webkit-app-region:no-drag via injectIntegratedCss.
@@ -772,6 +1118,8 @@
     // In-flow ROM header — no body offset for a fixed host bar
     setCaptionHeightVar(0);
     injectIntegratedCss();
+    armSurfaceDrags(true);
+    armDragSelectGuard();
     applyZoom(readZoom());
     ensureHostMenu();
     wireGlobalKeys();
@@ -787,20 +1135,46 @@
     style.textContent =
       "html.deck-host-integrated,html.deck-host-integrated body{" +
       "--deck-caption-h:0px!important;--pocket-caption-h:0px!important}" +
+      /* WebView2 composites -webkit-app-region:drag as a black rectangle,
+         often offset below the title bar. pywebview JS drag still works
+         via .pywebview-drag-region mousedown. */
+      "html.deck-host-frameless .pywebview-drag-region," +
+      "html.deck-host-frameless [data-deck-drag]," +
+      "html.deck-host-frameless .wwwExplorer_windowTitleBar," +
+      "html.deck-host-frameless .dh-cap-drag{" +
+      "-webkit-app-region:no-drag!important}" +
+      "html.deck-host-integrated #deck-host-caption{" +
+      "display:none!important;height:0!important;min-height:0!important;" +
+      "padding:0!important;border:0!important;overflow:hidden!important}" +
       /* Whole ROM chrome draggable when marked data-deck-drag-root */
-      "html.deck-host-integrated [data-deck-chrome][data-deck-drag-root]{" +
-      "-webkit-app-region:drag}" +
+      "html.deck-host-integrated [data-deck-chrome][data-deck-drag-root]," +
+      "html.deck-host-integrated [data-deck-chrome][data-deck-drag-root] *{" +
+      "user-select:none!important;-webkit-user-select:none!important}" +
+      "html.deck-host-integrated [data-deck-drag]," +
+      "html.deck-host-integrated [data-deck-drag] *," +
       "html.deck-host-integrated [data-deck-chrome] [data-deck-drag]," +
       "html.deck-host-integrated [data-deck-chrome] .chrome-grip," +
-      "html.deck-host-integrated [data-deck-chrome] .chrome-meta{" +
-      "-webkit-app-region:drag}" +
+      "html.deck-host-integrated [data-deck-chrome] .chrome-meta," +
+      "html.deck-host-integrated [data-deck-chrome] .wwwExplorer_windowTitleBar," +
+      "html.deck-host-integrated .pywebview-drag-region," +
+      "html.deck-host-integrated .pywebview-drag-region *{" +
+      "user-select:none!important;-webkit-user-select:none!important}" +
+      "html.deck-host-integrated [data-deck-chrome] input," +
+      "html.deck-host-integrated [data-deck-chrome] textarea{" +
+      "user-select:text!important;-webkit-user-select:text!important}" +
+      "html.deck-host-integrated [data-deck-drag] button," +
+      "html.deck-host-integrated [data-deck-drag] a," +
+      "html.deck-host-integrated [data-deck-drag] input," +
       "html.deck-host-integrated [data-deck-window-controls]," +
       "html.deck-host-integrated [data-deck-window-controls] *{" +
       "-webkit-app-region:no-drag}" +
       "html.deck-host-integrated [data-deck-menu]," +
       "html.deck-host-integrated [data-act=menu]," +
       "html.deck-host-integrated [data-deck-chrome] button," +
-      "html.deck-host-integrated [data-deck-chrome] .pocket{" +
+      "html.deck-host-integrated [data-deck-chrome] .pocket," +
+      "html.deck-host-integrated .sheet-resize," +
+      "html.deck-host-integrated #deck-host-resize," +
+      "html.deck-host-integrated #deck-host-resize *{" +
       "-webkit-app-region:no-drag}" +
       "html.deck-host-integrated [data-deck-window-controls]{" +
       "display:flex;flex-shrink:0;align-items:stretch}" +
@@ -853,8 +1227,9 @@
       "background:transparent}" +
       "#deck-host-deep-drag:active{cursor:grabbing}" +
       "html.deck-host-integrated #deck-host-menu{" +
-      "top:36px;left:8px;min-width:200px;z-index:2147483001;" +
-      "position:fixed;margin:0;padding:6px 0;" +
+      "top:36px;left:8px;min-width:min(200px,calc(100vw - 16px));" +
+      "max-width:calc(100vw - 16px);z-index:2147483001;" +
+      "position:fixed;margin:0;padding:6px 0;overflow:visible;" +
       "background:#e8edf2;border:1px solid #c5d0dc;color:#2a3540;" +
       "font:12px system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.12)}" +
       "html.deck-host-integrated #deck-host-menu button{" +
@@ -865,7 +1240,66 @@
       "height:1px;margin:6px 10px;background:#c5d0dc}" +
       "html.deck-host-integrated #deck-host-menu .dh-menu-hint{" +
       "padding:6px 14px 4px;font-size:10px;letter-spacing:.08em;" +
-      "text-transform:uppercase;opacity:.5}";
+      "text-transform:uppercase;opacity:.5}" +
+      "html.deck-host-integrated #deck-host-menu .dh-submenu{" +
+      "position:absolute;left:100%;top:0;margin-left:-1px;min-width:10.5rem;" +
+      "z-index:3;padding:6px 0;overflow:visible;" +
+      "background:#e8edf2;border:1px solid #c5d0dc;color:#2a3540;" +
+      "box-shadow:0 8px 24px rgba(0,0,0,.12)}" +
+      "html.deck-host-integrated #deck-host-menu .dh-submenu.is-down{" +
+      "position:relative;left:auto;right:auto;top:auto;margin:2px 8px 6px;" +
+      "min-width:0;width:auto;box-shadow:none}" +
+      "html.deck-host-integrated #deck-host-menu .dh-menu-folder," +
+      "html.deck-host-www-menu #deck-host-menu .dh-menu-folder{" +
+      "display:flex;align-items:center;justify-content:space-between;gap:12px}" +
+      "html.deck-host-www-menu #deck-host-menu{" +
+      "top:36px;left:5px;min-width:11.5rem;padding:3px;overflow:visible;" +
+      "background:gray;color:#111;" +
+      "font:11px 'JetBrains Mono','Courier New',Consolas,monospace;" +
+      "border:1px solid rgba(0,0,0,.634);" +
+      "box-shadow:inset -2px -2px 0 #00000033,inset 2px 2px 0 #ffffff66," +
+      "1px 1px 0 #ffffff66,-1px -1px 0 #00000066}" +
+      "html.deck-host-www-menu #deck-host-menu button{" +
+      "padding:5px 14px;font:inherit;color:#111}" +
+      "html.deck-host-www-menu #deck-host-menu button:hover," +
+      "html.deck-host-www-menu #deck-host-menu button:focus{" +
+      "background:#0000cd;color:#fff;outline:none}" +
+      "html.deck-host-www-menu #deck-host-menu .dh-menu-sep{" +
+      "height:2px;margin:3px 4px;background:transparent;" +
+      "border-top:1px solid #808080;border-bottom:1px solid #fff}" +
+      "html.deck-host-www-menu #deck-host-menu .dh-menu-hint{" +
+      "padding:4px 14px 3px;font-size:10px;letter-spacing:.08em;" +
+      "text-transform:uppercase;color:#404040;opacity:1}" +
+      "html.deck-host-www-menu #deck-host-menu .dh-submenu{" +
+      "position:absolute;left:100%;top:0;margin-left:-1px;min-width:10.5rem;" +
+      "z-index:3;padding:3px;overflow:visible;background:gray;color:#111;" +
+      "border:1px solid rgba(0,0,0,.634);" +
+      "box-shadow:inset -2px -2px 0 #00000033,inset 2px 2px 0 #ffffff66," +
+      "1px 1px 0 #ffffff66,-1px -1px 0 #00000066}" +
+      "html.deck-host-www-menu #deck-host-menu .dh-submenu button{" +
+      "padding:5px 14px;font:inherit;color:#111}" +
+      "html.deck-host-www-menu #deck-host-menu .dh-submenu button:hover," +
+      "html.deck-host-www-menu #deck-host-menu .dh-submenu button:focus{" +
+      "background:#0000cd;color:#fff;outline:none}" +
+      "html.deck-host-www-menu [data-deck-window-controls]{" +
+      "gap:3px;align-items:center}" +
+      "html.deck-host-www-menu [data-deck-window-controls] .dh-cap-btn{" +
+      "width:22px;height:20px;min-width:22px;padding:0;margin:0;line-height:18px;" +
+      "opacity:1;color:#111;background:gray;" +
+      "border:1px solid rgba(0,0,0,.634);" +
+      "font:11px 'JetBrains Mono','Courier New',Consolas,monospace;" +
+      "box-shadow:inset -1px -1px 0 #00000033,inset 1px 1px 0 #ffffff66," +
+      "1px 1px 0 #ffffff66,-1px -1px 0 #00000066}" +
+      "html.deck-host-www-menu [data-deck-window-controls] .dh-cap-btn:hover{" +
+      "opacity:1;background:#c0c0c0;color:#111}" +
+      "html.deck-host-www-menu [data-deck-window-controls] .dh-cap-btn:active{" +
+      "box-shadow:inset 1px 1px 0 #00000033,inset -1px -1px 0 #ffffff66}" +
+      "html.deck-host-www-menu [data-deck-window-controls] .dh-cap-btn.close:hover{" +
+      "background:gray;color:#111}" +
+      "html.deck-host-www-menu [data-deck-window-controls] .dh-cap-btn svg{" +
+      "width:11px;height:11px;margin:3px auto;stroke:#111}" +
+      "html.deck-host-www-menu [data-deck-window-controls] .dh-eye{" +
+      "width:11px;height:11px;margin:3px auto;color:#111}";
     document.head.appendChild(style);
   }
 
@@ -928,7 +1362,7 @@
         }
         if (key === "F11") {
           e.preventDefault();
-          toggleDeep();
+          if (deepAllowed() || isDeep()) toggleDeep();
           return;
         }
         if (key === "Escape") {
@@ -965,18 +1399,17 @@
       setTimeout(run, 30);
       return;
     }
+    bindFramelessResize();
 
     // ROM header takeover (e.g. loreBOX .app-chrome)
     if (tryIntegrateRomChrome()) {
-      try {
-        if (localStorage.getItem(LS_DEEP) === "1") setDeep(true);
-      } catch (e0) {}
       return;
     }
 
     injectCss();
     setCaptionVar();
     applyZoom(readZoom());
+    armDragSelectGuard();
 
     var existing = document.getElementById("deck-host-caption");
     if (existing) {
@@ -984,9 +1417,6 @@
       if (lab0) lab0.textContent = TITLE;
       setCaptionVar();
       applyZoom(readZoom());
-      try {
-        if (localStorage.getItem(LS_DEEP) === "1") setDeep(true);
-      } catch (e) {}
       return;
     }
 
@@ -1051,64 +1481,7 @@
     });
 
     var btns = document.createElement("div");
-    btns.className = "dh-cap-btns";
-
-    function mkBtn(act, label, title, extraClass) {
-      var b = document.createElement("button");
-      b.type = "button";
-      b.className = "dh-cap-btn" + (extraClass ? " " + extraClass : "");
-      b.setAttribute("data-act", act);
-      b.title = title;
-      b.textContent = label;
-      b.addEventListener("mousedown", function (e) {
-        e.stopPropagation();
-      });
-      b.addEventListener("click", function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (act === "step_size") {
-          stepWindowSize();
-          return;
-        }
-        if (act === "deep") {
-          setDeep(true);
-          return;
-        }
-        var a = api();
-        if (!a) return;
-        if (act === "min" && a.minimize) a.minimize();
-        if (act === "max") runMaximize();
-        if (act === "close" && a.close) a.close();
-      });
-      return b;
-    }
-
-    // deep (eye) · expand · min · max · close  — expand sits next to minimize
-    var deepBtn = mkBtn("deep", "", "Go deep · hide chrome · F11", "deep-btn");
-    deepBtn.innerHTML =
-      '<span class="dh-eye dh-eye-open" aria-hidden="true">' +
-      '<svg viewBox="0 0 24 24">' +
-      '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/>' +
-      '<circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/>' +
-      "</svg></span>" +
-      '<span class="dh-eye dh-eye-shut" aria-hidden="true">' +
-      '<svg viewBox="0 0 24 24">' +
-      '<path d="M3 12h18"/>' +
-      '<path d="M5.5 12c1.2-2.4 3.6-4 6.5-4s5.3 1.6 6.5 4"/>' +
-      "</svg></span>";
-    btns.appendChild(deepBtn);
-    btns.appendChild(
-      mkBtn("step_size", "⤢", "Window · expand to 1600×1200", "mag-btn")
-    );
-    btns.appendChild(mkBtn("min", "─", "Minimize"));
-    // maximize: full-weight square (matches eye stroke), not tiny □ glyph
-    var maxBtn = mkBtn("max", "", "Maximize window", "max-btn");
-    maxBtn.innerHTML =
-      '<svg viewBox="0 0 24 24" aria-hidden="true">' +
-      '<rect x="5" y="5" width="14" height="14" rx="1.2"/>' +
-      "</svg>";
-    btns.appendChild(maxBtn);
-    btns.appendChild(mkBtn("close", "✕", "Close", "close"));
+    fillWindowControls(btns);
 
     var menu = document.createElement("div");
     menu.id = "deck-host-menu";
@@ -1174,10 +1547,10 @@
             return;
           }
 
-          // F11 — go deep / surface (page immersive, keeps our chrome control)
+          // F11 — go deep only when the ROM opted in (data-deck-controls includes deep)
           if (key === "F11") {
             e.preventDefault();
-            toggleDeep();
+            if (deepAllowed() || isDeep()) toggleDeep();
             return;
           }
 
@@ -1211,11 +1584,6 @@
         true
       );
     }
-
-    // restore deep if left deep last time (optional — can surprise; only if flag set)
-    try {
-      if (localStorage.getItem(LS_DEEP) === "1") setDeep(true);
-    } catch (e2) {}
 
     applyZoom(readZoom());
   }

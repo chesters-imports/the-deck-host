@@ -9,7 +9,6 @@
 
   /** @type {any[]} */
   let allTiles = [];
-  let tab = "live"; // live | soon
 
   function toast(msg) {
     const el = $("toast");
@@ -33,8 +32,32 @@
     return !!t.launchable && !t.broken && t.status !== "broken" && !t.coming_soon;
   }
 
-  function isSoonOrBroken(t) {
-    return !isLive(t);
+  function makerName(t) {
+    return String(t.producer || "").trim() || "unfiled";
+  }
+
+  function groupByMaker(tiles) {
+    const map = new Map();
+    for (const t of tiles) {
+      const k = makerName(t);
+      if (!map.has(k)) map.set(k, []);
+      map.get(k).push(t);
+    }
+    const names = [...map.keys()].sort((a, b) => {
+      if (a === "unfiled") return 1;
+      if (b === "unfiled") return -1;
+      return a.localeCompare(b, undefined, { sensitivity: "base" });
+    });
+    return names.map((name) => {
+      const items = map.get(name).slice().sort((a, b) =>
+        String(a.name || "").localeCompare(String(b.name || ""), undefined, {
+          sensitivity: "base",
+        })
+      );
+      const chip =
+        items.find((t) => t.producer_chip)?.producer_chip || "";
+      return { name, chip, items };
+    });
   }
 
   async function loadTiles() {
@@ -44,47 +67,27 @@
     return j.tiles || [];
   }
 
-  function setTab(name) {
-    tab = name;
-    $("tabLive").classList.toggle("is-on", name === "live");
-    $("tabSoon").classList.toggle("is-on", name === "soon");
-    $("tabLive").setAttribute("aria-selected", name === "live" ? "true" : "false");
-    $("tabSoon").setAttribute("aria-selected", name === "soon" ? "true" : "false");
-    render();
-  }
-
   function render() {
-    const live = allTiles.filter(isLive);
-    const soon = allTiles.filter(isSoonOrBroken);
-    $("nLive").textContent = String(live.length);
-    $("nSoon").textContent = String(soon.length);
+    const tiles = allTiles.filter(isLive);
 
-    const tiles = tab === "live" ? live : soon;
-
-    if (tab === "live") {
-      sub.textContent =
-        live.length === 0
-          ? "no live cases · toggle launcher_show in ROM Cat"
-          : "click a case · green pins = already warm (running)";
-      status.textContent = "live shelf";
-    } else {
-      sub.textContent =
-        soon.length === 0
-          ? "nothing waiting"
-          : "broken + coming soon · not launchable";
-      status.textContent = "soon shelf";
-    }
+    sub.textContent =
+      tiles.length === 0
+        ? "no cases · Install a cart, or toggle launcher_show in ROM Cat"
+        : "by maker · click a case · green pins = already warm";
+    status.textContent = "by maker";
 
     if (!tiles.length) {
-      grid.innerHTML =
-        tab === "live"
-          ? '<div class="rl-empty">no live ROMs</div>'
-          : '<div class="rl-empty">shelf empty</div>';
+      grid.innerHTML = '<div class="rl-empty">no ROMs on the shelf</div>';
       return;
     }
 
-    grid.innerHTML = tiles
-      .map((t) => {
+    const shelves = groupByMaker(tiles);
+    grid.innerHTML = shelves
+      .map((shelf) => {
+        const chip = shelf.chip
+          ? `<span class="rl-maker-chip">${esc(shelf.chip)}</span>`
+          : "";
+        const cases = shelf.items.map((t) => {
         // Identity from ROM Cat. Shell: classicboi | julie (+ julie_tint).
         const hue = esc(t.hue || "classic");
         const shell =
@@ -132,23 +135,35 @@
         ]
           .filter(Boolean)
           .join(" · ");
-        // Shared face: shell · black lip · badge fragment · plate · sku · pins
+        // Shared face: shell · grip lip · well · badge · plate · sku · shutter · pins
         return (
           `<button type="button" class="${cls}" data-id="${esc(t.id)}" ` +
           `${disabled ? "disabled" : ""} title="${esc(titleBits)}" ` +
           `${isHex ? `data-julie-hex="${esc(rawTint)}"` : ""}>` +
           `<span class="rl-case-shell" aria-hidden="true"></span>` +
           `<span class="rl-case-notch" aria-hidden="true"></span>` +
+          `<span class="rl-case-well" aria-hidden="true"></span>` +
           `<span class="rl-case-badge" title="short plate">${esc(plate)}</span>` +
           `<span class="rl-case-label" data-plate>` +
           `<span class="rl-case-label-main">${esc(t.name || plate)}</span>` +
           `</span>` +
           `<span class="rl-case-sku">${esc(skuShort)}</span>` +
+          `<span class="rl-case-shutter" aria-hidden="true"></span>` +
           `<span class="rl-case-pins" aria-hidden="true" title="edge contacts"></span>` +
           (st
             ? `<span class="rl-case-status">${esc(st)}</span>`
             : "") +
           `</button>`
+        );
+        }).join("");
+        return (
+          `<section class="rl-maker">` +
+          `<h2 class="rl-maker-h">` +
+          `<span class="rl-maker-name">${esc(shelf.name)}</span>` +
+          chip +
+          `</h2>` +
+          `<div class="rl-maker-cases">${cases}</div>` +
+          `</section>`
         );
       })
       .join("");
@@ -237,10 +252,115 @@
     }
   }
 
-  $("tabLive").addEventListener("click", () => setTab("live"));
-  $("tabSoon").addEventListener("click", () => setTab("soon"));
+  function hostApi() {
+    return window.pywebview && window.pywebview.api;
+  }
+
+  async function pickThenInstall(kind) {
+    const a = hostApi();
+    if (!a) {
+      toast("open in Deck Host to install");
+      return;
+    }
+    status.textContent = "install…";
+    try {
+      const path =
+        kind === "folder"
+          ? await a.pick_folder()
+          : await a.pick_archive();
+      if (!path) {
+        status.textContent = "—";
+        return;
+      }
+      const r = await fetch("/api/install", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      const j = await r.json();
+      if (!j.ok) {
+        toast(j.error || "install failed");
+        status.textContent = "install fail";
+        return;
+      }
+      toast(j.message || "seated");
+      status.textContent = j.id ? `seated ${j.id}` : "seated";
+      setTimeout(refresh, 400);
+    } catch (e) {
+      console.error(e);
+      toast("install error");
+      status.textContent = "install fail";
+    }
+  }
+
+  const LS_SHELL = "deck-launcher-shell";
+  const SHELLS = [
+    { id: "base", label: "Base" },
+    { id: "lightclassic", label: "Light classic" },
+  ];
+
+  function currentShell() {
+    try {
+      const id = localStorage.getItem(LS_SHELL) || "base";
+      return SHELLS.some((s) => s.id === id) ? id : "base";
+    } catch (e) {
+      return "base";
+    }
+  }
+
+  function applyShell(id) {
+    const skin = SHELLS.find((s) => s.id === id) || SHELLS[0];
+    try {
+      localStorage.setItem(LS_SHELL, skin.id);
+    } catch (e) {}
+    document.documentElement.setAttribute("data-launcher-shell", skin.id);
+    let link = document.getElementById("launcher-shell-dsc");
+    if (skin.id === "base") {
+      if (link) link.remove();
+      return;
+    }
+    const href = "/skins/launcher-" + skin.id + ".dsc";
+    if (!link) {
+      link = document.createElement("link");
+      link.id = "launcher-shell-dsc";
+      link.rel = "stylesheet";
+      document.head.appendChild(link);
+    }
+    link.href = href;
+  }
+
+  function pickShell(id) {
+    applyShell(id);
+    const skin = SHELLS.find((s) => s.id === id);
+    toast((skin && skin.label) || id);
+  }
+
+  window.DECK_ROM_MENU = [
+    { label: "Refresh cases", run: refresh },
+    { label: "Install ROM…", run: function () { pickThenInstall("rom"); } },
+    { label: "Install folder…", run: function () { pickThenInstall("folder"); } },
+    {
+      label: "Shell",
+      items: SHELLS.map((s) => ({
+        labelFn: function () {
+          return (currentShell() === s.id ? "● " : "○ ") + s.label;
+        },
+        run: function () {
+          pickShell(s.id);
+        },
+      })),
+    },
+    { sep: true },
+    { label: "Unstick", run: unstick },
+  ];
+
+  applyShell(currentShell());
+
   $("btnRefresh").addEventListener("click", refresh);
   if ($("btnUnstick")) $("btnUnstick").addEventListener("click", unstick);
+  if ($("btnInstall")) {
+    $("btnInstall").addEventListener("click", () => pickThenInstall("rom"));
+  }
   refresh();
   setInterval(refresh, 8000);
 })();
